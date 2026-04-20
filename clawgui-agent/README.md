@@ -91,8 +91,12 @@ Then send tasks from the controller's Web UI (`python webui.py`) or CLI (`python
 
 - [ ] Server starts without errors
 - [ ] `http://localhost:7860/docs` loads in browser
-- [ ] `/api/` returns a JSON response
-- [ ] Controller can reach `http://<ip>:7860` from the network
+- [ ] `http://localhost:7860/api/health` returns `{"status":"ok"}`
+- [ ] Screenshot capture works — run in a second terminal and open the saved file:
+  ```cmd
+  curl http://localhost:7860/api/screenshot --output screenshot.png
+  ```
+- [ ] Controller can reach `http://<ip>:7860/api/health` from the network
 - [ ] A test task completes end-to-end (screenshot → action loop)
 
 ---
