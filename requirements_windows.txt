@@ -1,0 +1,29 @@
+# ClawGUI-Agent — Windows platform dependencies
+#
+# Install on the machine that runs the agent (local) or the target PC (remote WAS):
+#   pip install -r requirements_windows.txt
+#
+# On the CONTROLLER machine (runs main.py / PhoneAgent):
+#   All packages below are needed except server-only ones marked [WAS].
+#
+# On the TARGET machine running windows_agent_server.py:
+#   All packages are needed.
+
+# ── Core (both controller and target) ─────────────────────────────────────────
+Pillow>=12.0.0
+openai>=2.9.0
+requests>=2.31.0
+numpy>=1.24.0
+
+# ── Windows GUI control ────────────────────────────────────────────────────────
+pyautogui>=0.9.54          # Mouse / keyboard automation
+pywin32>=306               # win32gui for window management and current-app detection
+pyperclip>=1.8.2           # Clipboard fallback for Unicode text input
+
+# ── Screenshot capture ─────────────────────────────────────────────────────────
+mss>=9.0.1                 # Fast full-screen and monitor-specific capture
+
+# ── Windows Agent Server (WAS) — target PC / remote mode ──────────────────────
+fastapi>=0.111.0           # REST API layer
+uvicorn[standard]>=0.29.0  # ASGI server
+mcp>=1.26.0                # FastMCP for /mcp endpoint (Nanobot pattern)
