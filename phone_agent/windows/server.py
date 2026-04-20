@@ -15,6 +15,7 @@ import platform
 import socket
 
 from fastapi import FastAPI
+from fastapi.responses import Response
 from pydantic import BaseModel
 
 app = FastAPI(title="Windows Agent Server", version="1.0.0")
@@ -86,6 +87,13 @@ def info():
         "screen": {"width": w, "height": h},
         "active_window": _local_get_current_app(),
     }
+
+
+@app.get("/api/screenshot")
+def screenshot_get():
+    from phone_agent.windows.screenshot import get_screenshot
+    shot = get_screenshot()
+    return Response(content=base64.b64decode(shot.base64_data), media_type="image/png")
 
 
 @app.post("/api/screenshot")
