@@ -44,19 +44,26 @@ The server starts on **port 7860** by default.
 
 ---
 
-## Configuration
+## Configuration (only needed for standalone mode)
 
-Before running, set your OpenAI-compatible API key:
+**Smoketest / server-only**: if this machine is acting purely as the Windows Agent Server — receiving tasks from a controller on another machine — you do **not** need an API key here. The controller handles VLM calls.
+
+**Standalone mode**: if you want this machine to also drive the VLM reasoning loop itself, set an API key for whichever provider you're using (OpenRouter, Zhipu AI, a local vLLM server, etc.). These providers all use the OpenAI-compatible API format:
 
 ```powershell
-$env:OPENAI_API_KEY = "your-api-key-here"
+# Example: OpenRouter
+$env:OPENAI_API_KEY = "sk-or-..."
+
+# Example: local vLLM (no key required — just set the base URL in config)
 ```
 
 Or add it to a `.env` file inside `clawgui-agent/`:
 
 ```
-OPENAI_API_KEY=your-api-key-here
+OPENAI_API_KEY=your-provider-key-here
 ```
+
+See [`clawgui-agent/README.md`](clawgui-agent/README.md) for the full provider/model config reference.
 
 ---
 
