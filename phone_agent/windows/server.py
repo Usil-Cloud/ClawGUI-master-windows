@@ -14,11 +14,22 @@ import base64
 import platform
 import socket
 
-from fastapi import FastAPI
-from fastapi.responses import Response
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel
 
 app = FastAPI(title="Windows Agent Server", version="1.0.0")
+
+# ── Tailscale IP allowlist ─────────────────────────────────────────────────────
+# Accept only loopback (local dev) and Tailscale CGNAT range (100.64.0.0/10).
+_ALLOWED_PREFIXES = ("127.", "::1", "100.")
+
+@app.middleware("http")
+async def tailscale_only(request: Request, call_next):
+    client_ip = request.client.host if request.client else ""
+    if not any(client_ip.startswith(p) for p in _ALLOWED_PREFIXES):
+        return JSONResponse({"error": "forbidden — Tailscale required"}, status_code=403)
+    return await call_next(request)
 
 # ── FastMCP server ─────────────────────────────────────────────────────────────
 try:
