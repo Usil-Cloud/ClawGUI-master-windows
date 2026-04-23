@@ -19,6 +19,7 @@ numpy>=1.24.0
 pyautogui>=0.9.54          # Mouse / keyboard automation
 pywin32>=306               # win32gui for window management and current-app detection
 pyperclip>=1.8.2           # Clipboard fallback for Unicode text input
+pytest>=9.0.3
 
 # ── Screenshot capture ─────────────────────────────────────────────────────────
 mss>=9.0.1                 # Fast full-screen and monitor-specific capture

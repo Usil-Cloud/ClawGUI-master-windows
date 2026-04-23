@@ -37,21 +37,37 @@ def _stub(name: str, **attrs) -> types.ModuleType:
     mod = types.ModuleType(name)
     for k, v in attrs.items():
         setattr(mod, k, v)
-    sys.modules.setdefault(name, mod)
-    return sys.modules[name]
+    sys.modules[name] = mod
+    return mod
 
-_stub("win32gui",
+
+def _stub_if_missing(name: str, **attrs) -> None:
+    """Install a stub only when the real module cannot be imported.
+
+    Uses setdefault so a previously imported real module is never evicted.
+    On Windows with pywin32 installed, win32gui won't be in sys.modules yet
+    at test-file import time, so we probe with __import__ first.
+    """
+    if name in sys.modules:
+        return
+    try:
+        __import__(name)
+    except ImportError:
+        _stub(name, **attrs)
+
+
+_stub_if_missing("win32gui",
     IsWindowVisible=lambda h: True,
     GetWindowText=lambda h: "",
     EnumWindows=lambda cb, x: None,
     GetWindowRect=lambda h: (0, 0, 1920, 1080),
 )
-_stub("win32ui")
-_stub("win32con", SRCCOPY=0xCC0020)
-_stub("pywintypes")
+_stub_if_missing("win32ui")
+_stub_if_missing("win32con", SRCCOPY=0xCC0020)
+_stub_if_missing("pywintypes")
 
 # Stub connection so is_local / post resolve without the full package.
-_stub("phone_agent.windows.connection",
+_stub_if_missing("phone_agent.windows.connection",
     is_local=lambda device_id: True,
     post=lambda *a, **kw: {},
     ConnectionMode=object,

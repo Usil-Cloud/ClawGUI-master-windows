@@ -46,6 +46,8 @@ The primary entry point on the target machine is the **Windows Agent Server (WAS
 
 ## Prerequisites
 
+### Python + Git
+
 On a **brand-new Windows machine**, open PowerShell as Administrator and run:
 
 ```powershell
@@ -53,6 +55,22 @@ winget install Python.Python.3.12 Git.Git
 ```
 
 Close and reopen your terminal after this so `python` and `git` are on PATH. If your machine already has Python 3.11+ and Git, skip this step.
+
+### Tailscale (required for remote access)
+
+ClawGUI-Windows uses **Tailscale** so the controller machine can reach the target over any network without port-forwarding or firewall rules.
+
+1. Download and install Tailscale: https://tailscale.com/download/windows
+2. Sign in with your Tailscale account (free tier is fine).
+3. Confirm the machine shows up in your Tailscale admin console with a `100.x.x.x` IP.
+
+When you run `python windows_agent_server.py`, the startup output will show:
+
+```
+Tailscale:  http://100.x.x.x:7860/api/health   ← use this address on the controller
+```
+
+If it shows `Tailscale: NOT DETECTED`, complete steps 1–3 above before continuing. The server still binds to `0.0.0.0` and is reachable on your local LAN, but remote access from the controller will not work until Tailscale is authenticated.
 
 ---
 
