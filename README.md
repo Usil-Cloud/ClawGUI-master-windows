@@ -8,7 +8,39 @@
   </p>
 </div>
 
-This repo contains the Windows-ready build of **ClawGUI-master** — a unified framework for training, evaluating, and deploying GUI agents. The primary entry point on a Windows target machine is the **Windows Agent Server (WAS)**, which exposes a REST + MCP interface so a controller can issue tasks and receive screenshots in a closed loop.
+## What This Is
+
+**ClawGUI-Windows** is a natural language remote-control system. A user talks to an agent on their controller device in plain English. That agent drives a second Windows machine — the target — to complete whatever was asked, then returns the results.
+
+The user never touches the target machine. They describe what they want. ClawGUI-Windows figures out how to do it and does it.
+
+### Example interactions
+
+> **"Show me what files are in my Downloads folder."**
+> → Agent runs a shell command on the target, reads the output, and tells the user what's there.
+
+> **"How far did I get on my farmhouse model in Blender?"**
+> → Agent opens Blender on the target, focuses the window, takes a screenshot, and returns it — along with a summary and a prompt: *"Here's where you left off. Want to keep going?"*
+
+> **"Yeah, let's keep working. Rotate the roof section 15 degrees and show me how it looks."**
+> → Agent drives Blender on the target through GUI actions (clicks, keyboard shortcuts, viewport navigation), screenshots the result, and returns it.
+
+### What "driving" means in practice
+
+ClawGUI-Windows uses two execution modes depending on what the task requires:
+
+| Mode | Examples |
+|------|---------|
+| **GUI simulation** | Click, scroll, type, drag, hotkeys — for visual apps (Blender, browsers, IDEs, Explorer) |
+| **System commands** | Shell/CLI execution with stdout returned — for file operations, installs, scripts, queries |
+
+A co-working session may mix both in a single goal. The agent decides which to use.
+
+---
+
+## Technical Overview
+
+This repo contains the Windows-ready build of **ClawGUI-master**. The primary entry point on the target machine is the **Windows Agent Server (WAS)**, which exposes a REST + MCP interface. The controller (where the user talks to the agent) sends tasks to WAS, which executes them and returns results — screenshots, command output, file contents — back to the agent.
 
 ---
 

@@ -8,17 +8,27 @@ Start with:
     python windows_agent_server.py
 or:
     uvicorn phone_agent.windows.server:app --host 0.0.0.0 --port 7860
+
+Changes in v1.1.0
+-----------------
+* Verification envelope: every action endpoint now accepts ``verify: bool = True``.
+  When true the server sleeps 0.3 s, captures a screenshot, and returns it
+  together with ``active_window``, ``screen`` dims, and ``elapsed_ms``.
+* Server-side coord scaling: XYRequest / ScrollRequest / DragRequest now accept
+  ``ref_width`` / ``ref_height``.  If supplied the server scales the VLM coords to
+  the machine's native resolution automatically — the controller stays stateless.
 """
 from __future__ import annotations
 import base64
 import platform
 import socket
+import time
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel
 
-app = FastAPI(title="Windows Agent Server", version="1.0.0")
+app = FastAPI(title="Windows Agent Server", version="1.1.0")
 
 # ── Tailscale IP allowlist ─────────────────────────────────────────────────────
 # Accept only loopback (local dev) and Tailscale CGNAT range (100.64.0.0/10).
@@ -40,43 +50,119 @@ except ImportError:
     mcp = None
     HAS_MCP = False
 
+
+# ── Shared helpers ─────────────────────────────────────────────────────────────
+
+def _resolve_coords(
+    x: float,
+    y: float,
+    ref_w: int | None,
+    ref_h: int | None,
+) -> tuple[int, int]:
+    """Scale VLM inference coords to the machine's native resolution.
+
+    If *ref_w* / *ref_h* are provided the function fetches the live screen
+    size and linearly scales (x, y).  Otherwise it just casts to int.
+    This keeps the controller completely stateless — it never needs to know
+    the target resolution.
+    """
+    if ref_w and ref_h:
+        from phone_agent.windows.screenshot import get_screen_size
+        native_w, native_h = get_screen_size()
+        return int(x * native_w / ref_w), int(y * native_h / ref_h)
+    return int(x), int(y)
+
+
+def _action_response(ok: bool, verify: bool, t0: float) -> dict:
+    """Build the standard action-response envelope.
+
+    If *verify* is True the server waits 300 ms for the UI to settle, grabs
+    a full-screen screenshot, and includes it (base64 PNG) along with the
+    current active window title and screen dimensions.
+    ``elapsed_ms`` covers the entire endpoint lifetime including the sleep.
+    """
+    if verify:
+        time.sleep(0.3)
+        from phone_agent.windows.screenshot import get_screenshot
+        from phone_agent.windows.device import _local_get_current_app
+        shot = get_screenshot()
+        return {
+            "ok": ok,
+            "elapsed_ms": int((time.time() - t0) * 1000),
+            "screenshot_b64": shot.base64_data,
+            "active_window": _local_get_current_app(),
+            "screen": {"w": shot.width, "h": shot.height},
+        }
+    return {
+        "ok": ok,
+        "elapsed_ms": int((time.time() - t0) * 1000),
+    }
+
+
 # ── Pydantic request models ───────────────────────────────────────────────────
 
 class XYRequest(BaseModel):
-    x: int
-    y: int
+    x: float
+    y: float
     delay: float = 0.5
+    ref_width:  int | None = None   # VLM inference width  (for coord scaling)
+    ref_height: int | None = None   # VLM inference height (for coord scaling)
+    verify: bool = True
+
 
 class TypeRequest(BaseModel):
     text: str
+    verify: bool = True
+
 
 class HotkeyRequest(BaseModel):
     keys: list[str]
+    verify: bool = True
+
 
 class ScrollRequest(BaseModel):
-    x: int
-    y: int
+    x: float
+    y: float
     clicks: int = 3
     direction: str = "down"
+    ref_width:  int | None = None
+    ref_height: int | None = None
+    verify: bool = True
+
 
 class DragRequest(BaseModel):
-    start_x: int
-    start_y: int
-    end_x: int
-    end_y: int
+    start_x: float
+    start_y: float
+    end_x: float
+    end_y: float
     duration_ms: int = 500
+    ref_width:  int | None = None
+    ref_height: int | None = None
+    verify: bool = True
+
 
 class LaunchRequest(BaseModel):
     app_name: str
+    verify: bool = True
+
 
 class WindowRequest(BaseModel):
     title: str
+    verify: bool = True
+
 
 class ScreenshotRequest(BaseModel):
     window_title: str = ""
 
+
 class PressKeyRequest(BaseModel):
     key: str
+    verify: bool = True
+
+
+class VerifyRequest(BaseModel):
+    """Used for actions with no other parameters (e.g. clear_text)."""
+    verify: bool = False            # default OFF — screenshot rarely useful here
 
 
 # ── REST endpoints (/api/*) ───────────────────────────────────────────────────
@@ -116,86 +202,105 @@ def screenshot(req: ScreenshotRequest):
 
 @app.post("/api/action/click")
 def click(req: XYRequest):
+    t0 = time.time()
     from phone_agent.windows.device import tap
-    tap(req.x, req.y, delay=req.delay)
-    return {"ok": True}
+    px, py = _resolve_coords(req.x, req.y, req.ref_width, req.ref_height)
+    tap(px, py, delay=req.delay)
+    return _action_response(True, req.verify, t0)
 
 
 @app.post("/api/action/right_click")
 def right_click(req: XYRequest):
+    t0 = time.time()
     from phone_agent.windows.device import right_click as _rc
-    _rc(req.x, req.y, delay=req.delay)
-    return {"ok": True}
+    px, py = _resolve_coords(req.x, req.y, req.ref_width, req.ref_height)
+    _rc(px, py, delay=req.delay)
+    return _action_response(True, req.verify, t0)
 
 
 @app.post("/api/action/double_click")
 def double_click(req: XYRequest):
+    t0 = time.time()
     from phone_agent.windows.device import double_tap
-    double_tap(req.x, req.y, delay=req.delay)
-    return {"ok": True}
+    px, py = _resolve_coords(req.x, req.y, req.ref_width, req.ref_height)
+    double_tap(px, py, delay=req.delay)
+    return _action_response(True, req.verify, t0)
 
 
 @app.post("/api/action/long_press")
 def long_press(req: XYRequest):
+    t0 = time.time()
     from phone_agent.windows.device import long_press as _lp
-    _lp(req.x, req.y, duration_ms=int(req.delay * 1000 or 1000))
-    return {"ok": True}
+    px, py = _resolve_coords(req.x, req.y, req.ref_width, req.ref_height)
+    _lp(px, py, duration_ms=int(req.delay * 1000 or 1000))
+    return _action_response(True, req.verify, t0)
 
 
 @app.post("/api/action/type")
 def type_text(req: TypeRequest):
+    t0 = time.time()
     from phone_agent.windows.input import type_text as _tt
     _tt(req.text)
-    return {"ok": True}
+    return _action_response(True, req.verify, t0)
 
 
 @app.post("/api/action/clear_text")
-def clear_text():
+def clear_text(req: VerifyRequest = VerifyRequest()):
+    t0 = time.time()
     from phone_agent.windows.input import clear_text as _ct
     _ct()
-    return {"ok": True}
+    return _action_response(True, req.verify, t0)
 
 
 @app.post("/api/action/hotkey")
 def hotkey(req: HotkeyRequest):
+    t0 = time.time()
     from phone_agent.windows.input import hotkey as _hk
     _hk(*req.keys)
-    return {"ok": True}
+    return _action_response(True, req.verify, t0)
 
 
 @app.post("/api/action/press_key")
 def press_key(req: PressKeyRequest):
+    t0 = time.time()
     from phone_agent.windows.input import press_key as _pk
     _pk(req.key)
-    return {"ok": True}
+    return _action_response(True, req.verify, t0)
 
 
 @app.post("/api/action/scroll")
 def scroll(req: ScrollRequest):
+    t0 = time.time()
     from phone_agent.windows.device import scroll as _sc
-    _sc(req.x, req.y, clicks=req.clicks, direction=req.direction)
-    return {"ok": True}
+    px, py = _resolve_coords(req.x, req.y, req.ref_width, req.ref_height)
+    _sc(px, py, clicks=req.clicks, direction=req.direction)
+    return _action_response(True, req.verify, t0)
 
 
 @app.post("/api/action/drag")
 def drag(req: DragRequest):
+    t0 = time.time()
     from phone_agent.windows.device import swipe
-    swipe(req.start_x, req.start_y, req.end_x, req.end_y, duration_ms=req.duration_ms)
-    return {"ok": True}
+    sx, sy = _resolve_coords(req.start_x, req.start_y, req.ref_width, req.ref_height)
+    ex, ey = _resolve_coords(req.end_x, req.end_y, req.ref_width, req.ref_height)
+    swipe(sx, sy, ex, ey, duration_ms=req.duration_ms)
+    return _action_response(True, req.verify, t0)
 
 
 @app.post("/api/action/launch")
 def launch(req: LaunchRequest):
+    t0 = time.time()
     from phone_agent.windows.device import launch_app
     ok = launch_app(req.app_name)
-    return {"ok": ok}
+    return _action_response(ok, req.verify, t0)
 
 
 @app.post("/api/action/focus_window")
 def focus_window(req: WindowRequest):
+    t0 = time.time()
     from phone_agent.windows.window_manager import focus_window as _fw
     ok = _fw(req.title)
-    return {"ok": ok}
+    return _action_response(ok, req.verify, t0)
 
 
 @app.get("/api/windows/list")
@@ -221,28 +326,34 @@ if HAS_MCP and mcp is not None:
         return shot.base64_data
 
     @mcp.tool()
-    async def click_tool(x: int, y: int) -> str:
-        """Left-click at screen coordinates.
+    async def click_tool(x: int, y: int, ref_width: int = 0, ref_height: int = 0) -> str:
+        """Left-click at screen coordinates with optional VLM coord scaling.
 
         Args:
-            x: X coordinate in pixels
-            y: Y coordinate in pixels
+            x: X coordinate in pixels (or VLM inference pixels if ref dims given)
+            y: Y coordinate in pixels (or VLM inference pixels if ref dims given)
+            ref_width:  Width of the image sent to the VLM (0 = no scaling)
+            ref_height: Height of the image sent to the VLM (0 = no scaling)
         """
         from phone_agent.windows.device import tap
-        tap(x, y)
-        return f"Clicked ({x}, {y})"
+        px, py = _resolve_coords(x, y, ref_width or None, ref_height or None)
+        tap(px, py)
+        return f"Clicked ({px}, {py})"
 
     @mcp.tool()
-    async def right_click_tool(x: int, y: int) -> str:
+    async def right_click_tool(x: int, y: int, ref_width: int = 0, ref_height: int = 0) -> str:
         """Right-click at screen coordinates.
 
         Args:
-            x: X coordinate in pixels
-            y: Y coordinate in pixels
+            x: X coordinate
+            y: Y coordinate
+            ref_width:  VLM inference width  (0 = no scaling)
+            ref_height: VLM inference height (0 = no scaling)
         """
         from phone_agent.windows.device import right_click as _rc
-        _rc(x, y)
-        return f"Right-clicked ({x}, {y})"
+        px, py = _resolve_coords(x, y, ref_width or None, ref_height or None)
+        _rc(px, py)
+        return f"Right-clicked ({px}, {py})"
 
     @mcp.tool()
     async def type_text_tool(text: str) -> str:
