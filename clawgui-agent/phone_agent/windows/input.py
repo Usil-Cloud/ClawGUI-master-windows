@@ -1,15 +1,17 @@
-"""Windows keyboard input — type_text, hotkey, clear_text."""
+"""Windows keyboard input — type_text, hotkey, press_key, clear_text."""
 from __future__ import annotations
 import time
 
 from phone_agent.windows.connection import is_local, post
 
+_DEFAULT_INTERVAL = 0.05  # seconds between characters
 
-def type_text(text: str, device_id: str | None = None) -> None:
+
+def type_text(text: str, device_id: str | None = None, interval: float = _DEFAULT_INTERVAL) -> None:
     if is_local(device_id):
-        _local_type(text)
+        _local_type(text, interval=interval)
     else:
-        post(device_id, "/api/action/type", {"text": text})
+        post(device_id, "/api/action/type", {"text": text, "interval": interval})
 
 
 def clear_text(device_id: str | None = None) -> None:
@@ -40,20 +42,43 @@ def press_key(key: str, device_id: str | None = None) -> None:
 
 # ── local helpers ─────────────────────────────────────────────────────────────
 
-def _local_type(text: str) -> None:
-    """Type text, using clipboard for non-ASCII characters."""
+def _local_type(text: str, interval: float = _DEFAULT_INTERVAL) -> None:
     import pyautogui
 
-    has_non_ascii = any(ord(c) > 127 for c in text)
+    if _has_non_ascii(text):
+        _clipboard_paste(text)
+        return
 
-    if has_non_ascii:
+    pyautogui.typewrite(text, interval=interval)
+
+
+def _has_non_ascii(text: str) -> bool:
+    return any(ord(c) > 127 for c in text)
+
+
+def _clipboard_paste(text: str) -> None:
+    """Write text to clipboard via win32clipboard then paste with Ctrl+V."""
+    import pyautogui
+
+    try:
+        import win32clipboard
+        win32clipboard.OpenClipboard()
         try:
-            import pyperclip
-            pyperclip.copy(text)
-            pyautogui.hotkey("ctrl", "v")
-            return
-        except ImportError:
-            pass
+            win32clipboard.EmptyClipboard()
+            # CF_UNICODETEXT requires a null-terminated wide string
+            win32clipboard.SetClipboardData(win32clipboard.CF_UNICODETEXT, text)
+        finally:
+            win32clipboard.CloseClipboard()
+        pyautogui.hotkey("ctrl", "v")
+        return
+    except ImportError:
+        pass
 
-    # ASCII-safe typewrite with interval
-    pyautogui.typewrite(text, interval=0.02)
+    # Fallback: pyperclip (keeps prior behaviour when win32clipboard absent)
+    try:
+        import pyperclip
+        pyperclip.copy(text)
+        pyautogui.hotkey("ctrl", "v")
+    except ImportError:
+        # Last resort: typewrite and accept potential character drops
+        pyautogui.typewrite(text, interval=0.05)
