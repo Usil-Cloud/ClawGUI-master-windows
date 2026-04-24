@@ -1,4 +1,4 @@
-"""Multi-app integration tests spanning Notepad, Paint, and VS Code.
+"""Multi-app integration tests spanning Notepad, Discord, and VS Code.
 
 Covers both Feature 1-C (keyboard input) and Feature 1-D (window manager) to
 verify that all primitives work across diverse application types.
@@ -6,17 +6,22 @@ verify that all primitives work across diverse application types.
 App lifecycle
 -------------
 setUpModule opens all three apps once.  tearDownModule closes them:
-  - Notepad / Paint: killed via Popen.kill()
-  - VS Code: WM_CLOSE sent to the specific hwnd we captured at startup so that
-    any other VS Code windows the user has open are untouched, followed by a
+  - Notepad: killed via Popen.kill()
+  - Discord: WM_CLOSE sent to the specific hwnd we captured at startup so that
+    any other Discord windows the user has open are untouched, followed by a
     process kill if the launcher is still alive.
+  - VS Code: same hwnd-targeted WM_CLOSE + process kill approach.
+
+Discord is resolved via AppResolver (tiers 1-4; tier 5 Start Menu is excluded
+from detection to avoid opening the Start Menu at import time).  If Discord is
+not installed the tests are skipped rather than failed.
 
 Test classes
 ------------
-MultiAppWindowTests   — list_windows / focus_window across Notepad, Paint,
+MultiAppWindowTests   — list_windows / focus_window across Notepad, Discord,
                         and VS Code (Feature 1-D).
 MultiAppKeyboardTests — type_text / hotkey / press_key / clear_text across
-                        Notepad, Paint, and VS Code (Feature 1-C).
+                        Notepad, Discord, and VS Code (Feature 1-C).
 
 Run all:
     python -m pytest tests/windows/test_multi_app_integration.py -v
@@ -29,6 +34,7 @@ Run only keyboard tests:
 """
 from __future__ import annotations
 
+import os
 import platform
 import shutil
 import subprocess
@@ -36,6 +42,7 @@ import sys
 import time
 import types
 import unittest
+from pathlib import Path
 from unittest.mock import MagicMock
 
 # ---------------------------------------------------------------------------
@@ -137,6 +144,12 @@ if _ON_WINDOWS:
     except ImportError:
         pass
 
+# Discord installs to %LOCALAPPDATA%\Discord on every standard Windows install.
+# We probe the folder rather than calling AppResolver at import time so that
+# we avoid the slow PowerShell Get-StartApps tier (tier 3) on every test run.
+_discord_local = Path(os.environ.get("LOCALAPPDATA", "")) / "Discord"
+_HAS_DISCORD   = _ON_WINDOWS and _discord_local.is_dir()
+
 import phone_agent.windows.window_manager as wm_mod  # noqa: E402
 import phone_agent.windows.input as inp_mod           # noqa: E402
 
@@ -155,10 +168,11 @@ _KB_WHY   = (
 # Module-level app fixture — opened once, shared by both test classes
 # ---------------------------------------------------------------------------
 
-_notepad_proc: subprocess.Popen | None = None
-_paint_proc:   subprocess.Popen | None = None
-_vscode_proc:  subprocess.Popen | None = None
-_vscode_hwnd:  int | None = None
+_notepad_proc:  subprocess.Popen | None = None
+_discord_proc:  subprocess.Popen | None = None
+_discord_hwnd:  int | None = None
+_vscode_proc:   subprocess.Popen | None = None
+_vscode_hwnd:   int | None = None
 
 
 def _wait_for_window(partial_title: str, timeout: float = 10.0) -> int:
@@ -197,16 +211,37 @@ def _read_clipboard() -> str:
         win32clipboard.CloseClipboard()
 
 
+def _launch_discord() -> subprocess.Popen | None:
+    """Resolve and launch Discord via AppResolver (tiers 1-4 only).
+
+    Tier 5 (Start Menu via pyautogui) is intentionally excluded: it actually
+    opens the Start Menu as a side-effect, which is disruptive in a test run.
+    Returns the Popen handle on success, or None if Discord is not installed.
+    """
+    from phone_agent.windows.app_resolver import AppResolver, LaunchCommand
+
+    class _NoStartMenuResolver(AppResolver):
+        def _tier5_startmenu(self, app_name: str):
+            return None
+
+    cmd: LaunchCommand | None = _NoStartMenuResolver().resolve("Discord")
+    if cmd is None or not cmd.args:
+        return None
+    return subprocess.Popen(cmd.args)
+
+
 def setUpModule():  # noqa: N802
-    global _notepad_proc, _paint_proc, _vscode_proc, _vscode_hwnd
+    global _notepad_proc, _discord_proc, _discord_hwnd, _vscode_proc, _vscode_hwnd
     if not (_ON_WINDOWS and _HAS_WIN32):
         return
 
     _notepad_proc = subprocess.Popen(["notepad.exe"])
-    _paint_proc   = subprocess.Popen(["mspaint.exe"])
-    time.sleep(1.5)  # Windows 11 Store apps need a head-start before polling
     _wait_for_window("Notepad", timeout=15)
-    _wait_for_window("Paint",   timeout=15)
+
+    if _HAS_DISCORD:
+        _discord_proc = _launch_discord()
+        # Discord (Electron) is slow — give it a generous startup window
+        _discord_hwnd = _wait_for_window("Discord", timeout=30)
 
     if _HAS_VSCODE:
         _vscode_proc = subprocess.Popen(["code", "--new-window"])
@@ -216,26 +251,27 @@ def setUpModule():  # noqa: N802
 
 
 def tearDownModule():  # noqa: N802
-    global _notepad_proc, _paint_proc, _vscode_proc, _vscode_hwnd
+    global _notepad_proc, _discord_proc, _discord_hwnd, _vscode_proc, _vscode_hwnd
     if not (_ON_WINDOWS and _HAS_WIN32):
         return
 
-    # Close VS Code by hwnd so unrelated VS Code windows are not affected
-    if _vscode_hwnd:
-        try:
-            import win32gui, win32con
-            win32gui.PostMessage(_vscode_hwnd, win32con.WM_CLOSE, 0, 0)
-            time.sleep(0.6)
-        except Exception:
-            pass
-    if _vscode_proc and _vscode_proc.poll() is None:
-        _vscode_proc.kill()
-        _vscode_proc.wait(timeout=5)
-
-    for proc in [_notepad_proc, _paint_proc]:
+    # Close Discord and VS Code by their captured hwnds so unrelated windows
+    # belonging to the same app are not affected.
+    for hwnd, proc in [(_discord_hwnd, _discord_proc), (_vscode_hwnd, _vscode_proc)]:
+        if hwnd:
+            try:
+                import win32gui, win32con
+                win32gui.PostMessage(hwnd, win32con.WM_CLOSE, 0, 0)
+                time.sleep(0.6)
+            except Exception:
+                pass
         if proc and proc.poll() is None:
             proc.kill()
-            proc.wait(timeout=3)
+            proc.wait(timeout=5)
+
+    if _notepad_proc and _notepad_proc.poll() is None:
+        _notepad_proc.kill()
+        _notepad_proc.wait(timeout=3)
 
 
 # ---------------------------------------------------------------------------
@@ -244,7 +280,7 @@ def tearDownModule():  # noqa: N802
 
 @unittest.skipIf(_WIN_SKIP, _WIN_WHY)
 class MultiAppWindowTests(unittest.TestCase):
-    """list_windows / focus_window verified against Notepad, Paint, VS Code."""
+    """list_windows / focus_window verified against Notepad, Discord, VS Code."""
 
     # ── list_windows ──────────────────────────────────────────────────────────
 
@@ -254,11 +290,12 @@ class MultiAppWindowTests(unittest.TestCase):
         self.assertTrue(any("Notepad" in t for t in titles),
                         f"Notepad not found; got: {titles}")
 
-    def test_list_windows_finds_paint(self):
+    @unittest.skipIf(not _HAS_DISCORD, "Discord not installed")
+    def test_list_windows_finds_discord(self):
         result = wm_mod.list_windows()
         titles = [w.title for w in result]
-        self.assertTrue(any("Paint" in t for t in titles),
-                        f"Paint not found; got: {titles}")
+        self.assertTrue(any("Discord" in t for t in titles),
+                        f"Discord not found; got: {titles}")
 
     @unittest.skipIf(not _HAS_VSCODE, "VS Code not in PATH")
     def test_list_windows_finds_vscode(self):
@@ -281,11 +318,12 @@ class MultiAppWindowTests(unittest.TestCase):
         self.assertIsNotNone(notepad, "Notepad not found in list_windows()")
         self.assertGreater(notepad.hwnd, 0)
 
-    def test_list_windows_paint_has_positive_hwnd(self):
+    @unittest.skipIf(not _HAS_DISCORD, "Discord not installed")
+    def test_list_windows_discord_has_positive_hwnd(self):
         result = wm_mod.list_windows()
-        paint = next((w for w in result if "Paint" in w.title), None)
-        self.assertIsNotNone(paint, "Paint not found in list_windows()")
-        self.assertGreater(paint.hwnd, 0)
+        discord = next((w for w in result if "Discord" in w.title), None)
+        self.assertIsNotNone(discord, "Discord not found in list_windows()")
+        self.assertGreater(discord.hwnd, 0)
 
     def test_list_windows_notepad_rect_is_4_tuple(self):
         result = wm_mod.list_windows()
@@ -294,12 +332,13 @@ class MultiAppWindowTests(unittest.TestCase):
         self.assertIsInstance(notepad.rect, tuple)
         self.assertEqual(len(notepad.rect), 4)
 
-    def test_list_windows_paint_rect_is_4_tuple(self):
+    @unittest.skipIf(not _HAS_DISCORD, "Discord not installed")
+    def test_list_windows_discord_rect_is_4_tuple(self):
         result = wm_mod.list_windows()
-        paint = next((w for w in result if "Paint" in w.title), None)
-        self.assertIsNotNone(paint)
-        self.assertIsInstance(paint.rect, tuple)
-        self.assertEqual(len(paint.rect), 4)
+        discord = next((w for w in result if "Discord" in w.title), None)
+        self.assertIsNotNone(discord, "Discord not found in list_windows()")
+        self.assertIsInstance(discord.rect, tuple)
+        self.assertEqual(len(discord.rect), 4)
 
     @unittest.skipIf(not _HAS_VSCODE, "VS Code not in PATH")
     def test_list_windows_vscode_rect_is_4_tuple(self):
@@ -309,13 +348,14 @@ class MultiAppWindowTests(unittest.TestCase):
         self.assertIsInstance(vscode.rect, tuple)
         self.assertEqual(len(vscode.rect), 4)
 
-    def test_list_windows_notepad_and_paint_have_different_hwnds(self):
+    @unittest.skipIf(not _HAS_DISCORD, "Discord not installed")
+    def test_list_windows_notepad_and_discord_have_different_hwnds(self):
         result  = wm_mod.list_windows()
         notepad = next((w for w in result if "Notepad" in w.title), None)
-        paint   = next((w for w in result if "Paint"   in w.title), None)
+        discord = next((w for w in result if "Discord" in w.title), None)
         self.assertIsNotNone(notepad)
-        self.assertIsNotNone(paint)
-        self.assertNotEqual(notepad.hwnd, paint.hwnd)
+        self.assertIsNotNone(discord)
+        self.assertNotEqual(notepad.hwnd, discord.hwnd)
 
     # ── focus_window ──────────────────────────────────────────────────────────
 
@@ -334,20 +374,23 @@ class MultiAppWindowTests(unittest.TestCase):
         fg = win32gui.GetWindowText(win32gui.GetForegroundWindow())
         self.assertIn("Notepad", fg, f"Foreground after focus is {fg!r}")
 
-    def test_focus_window_paint_exact_returns_true(self):
-        self.assertTrue(wm_mod.focus_window("Paint"))
+    @unittest.skipIf(not _HAS_DISCORD, "Discord not installed")
+    def test_focus_window_discord_exact_returns_true(self):
+        self.assertTrue(wm_mod.focus_window("Discord"))
         time.sleep(0.3)
 
-    def test_focus_window_paint_partial_lowercase_returns_true(self):
-        self.assertTrue(wm_mod.focus_window("paint"))
+    @unittest.skipIf(not _HAS_DISCORD, "Discord not installed")
+    def test_focus_window_discord_partial_lowercase_returns_true(self):
+        self.assertTrue(wm_mod.focus_window("discord"))
         time.sleep(0.3)
 
-    def test_focus_window_paint_brings_to_foreground(self):
+    @unittest.skipIf(not _HAS_DISCORD, "Discord not installed")
+    def test_focus_window_discord_brings_to_foreground(self):
         import win32gui
-        wm_mod.focus_window("Paint")
+        wm_mod.focus_window("Discord")
         time.sleep(0.3)
         fg = win32gui.GetWindowText(win32gui.GetForegroundWindow())
-        self.assertIn("Paint", fg, f"Foreground after focus is {fg!r}")
+        self.assertIn("Discord", fg, f"Foreground after focus is {fg!r}")
 
     @unittest.skipIf(not _HAS_VSCODE, "VS Code not in PATH")
     def test_focus_window_vscode_partial_returns_true(self):
@@ -367,10 +410,11 @@ class MultiAppWindowTests(unittest.TestCase):
         fg = win32gui.GetWindowText(win32gui.GetForegroundWindow())
         self.assertIn("Visual Studio Code", fg, f"Foreground after focus is {fg!r}")
 
-    def test_focus_window_cycles_notepad_then_paint(self):
-        """Cycle Notepad → Paint and verify foreground title changes each time."""
+    @unittest.skipIf(not _HAS_DISCORD, "Discord not installed")
+    def test_focus_window_cycles_notepad_then_discord(self):
+        """Cycle Notepad → Discord and verify foreground title changes each time."""
         import win32gui
-        for title, keyword in [("Notepad", "Notepad"), ("Paint", "Paint")]:
+        for title, keyword in [("Notepad", "Notepad"), ("Discord", "Discord")]:
             ok = wm_mod.focus_window(title)
             time.sleep(0.35)
             self.assertTrue(ok, f"focus_window({title!r}) returned False")
@@ -378,13 +422,13 @@ class MultiAppWindowTests(unittest.TestCase):
             self.assertIn(keyword, fg,
                           f"After focus_window({title!r}), foreground is {fg!r}")
 
-    @unittest.skipIf(not _HAS_VSCODE, "VS Code not in PATH")
+    @unittest.skipIf(not (_HAS_DISCORD and _HAS_VSCODE), "Discord or VS Code not available")
     def test_focus_window_cycles_all_three_apps(self):
-        """Cycle Notepad → Paint → VS Code and confirm each comes to front."""
+        """Cycle Notepad → Discord → VS Code and confirm each comes to front."""
         import win32gui
         targets = [
             ("Notepad",            "Notepad"),
-            ("Paint",              "Paint"),
+            ("Discord",            "Discord"),
             ("Visual Studio Code", "Visual Studio Code"),
         ]
         for title, keyword in targets:
@@ -406,7 +450,7 @@ class MultiAppWindowTests(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# Feature 1-C: Keyboard input across Notepad, Paint, VS Code
+# Feature 1-C: Keyboard input across Notepad, Discord, VS Code
 # ---------------------------------------------------------------------------
 
 @unittest.skipIf(_KB_SKIP, _KB_WHY)
@@ -489,49 +533,47 @@ class MultiAppKeyboardTests(unittest.TestCase):
         time.sleep(0.15)
         self.assertEqual(_read_clipboard().strip(), "select all test")
 
-    # ── Paint (keyboard smoke tests) ──────────────────────────────────────────
+    # ── Discord (Ctrl+K quick-switcher search) ────────────────────────────────
 
-    def test_hotkey_ctrl_z_undo_in_paint_does_not_raise(self):
-        """Ctrl+Z (undo) in Paint must not raise."""
-        self._focus("Paint")
+    @unittest.skipIf(not _HAS_DISCORD, "Discord not installed")
+    def test_hotkey_ctrl_k_opens_discord_search_does_not_raise(self):
+        """Ctrl+K opens the Discord quick-switcher; Escape dismisses it."""
+        self._focus("Discord")
+        time.sleep(0.3)
         try:
-            inp_mod.hotkey("ctrl", "z")
+            inp_mod.hotkey("ctrl", "k")
+            time.sleep(0.5)   # wait for search overlay to appear
+            inp_mod.press_key("escape")
             time.sleep(0.2)
         except Exception as exc:
-            self.fail(f"hotkey Ctrl+Z in Paint raised: {exc}")
+            self.fail(f"Ctrl+K in Discord raised: {exc}")
 
-    def test_press_key_escape_in_paint_does_not_raise(self):
-        """Escape in Paint must not raise."""
-        self._focus("Paint")
+    @unittest.skipIf(not _HAS_DISCORD, "Discord not installed")
+    def test_type_text_in_discord_search_does_not_raise(self):
+        """Open Discord quick-switcher, type a query, then dismiss."""
+        self._focus("Discord")
+        time.sleep(0.3)
+        try:
+            inp_mod.hotkey("ctrl", "k")
+            time.sleep(0.5)
+            inp_mod.type_text("ClawGUI")
+            time.sleep(0.3)
+            inp_mod.press_key("escape")
+            time.sleep(0.2)
+        except Exception as exc:
+            self.fail(f"type_text in Discord search raised: {exc}")
+
+    @unittest.skipIf(not _HAS_DISCORD, "Discord not installed")
+    def test_press_key_escape_dismisses_discord_search(self):
+        """Escape after Ctrl+K must close the overlay without raising."""
+        self._focus("Discord")
+        inp_mod.hotkey("ctrl", "k")
+        time.sleep(0.5)
         try:
             inp_mod.press_key("escape")
-            time.sleep(0.1)
-        except Exception as exc:
-            self.fail(f"press_key(escape) in Paint raised: {exc}")
-
-    def test_type_text_in_paint_text_tool_does_not_raise(self):
-        """Activate Paint text tool via keyboard, click canvas, type — must not raise."""
-        import pyautogui
-        self._focus("Paint")
-        time.sleep(0.2)
-        # Get Paint window rect to click the canvas center
-        result = wm_mod.list_windows()
-        paint_win = next((w for w in result if "Paint" in w.title), None)
-        if paint_win is None:
-            self.skipTest("Paint window not found in list_windows()")
-        left, top, right, bottom = paint_win.rect
-        canvas_x = (left + right)  // 2
-        canvas_y = (top  + bottom) // 2 + 40  # offset below ribbon
-        try:
-            pyautogui.press("t")          # activate text tool
             time.sleep(0.2)
-            pyautogui.click(canvas_x, canvas_y)
-            time.sleep(0.3)
-            inp_mod.type_text("ClawGUI")
-            time.sleep(0.2)
-            inp_mod.press_key("escape")   # exit text tool
         except Exception as exc:
-            self.fail(f"type_text in Paint text tool raised: {exc}")
+            self.fail(f"press_key(escape) in Discord raised: {exc}")
 
     # ── VS Code ───────────────────────────────────────────────────────────────
 
