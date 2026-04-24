@@ -1,10 +1,13 @@
 """Windows device control — matches ClawGUI DeviceFactory interface exactly."""
 from __future__ import annotations
+import logging
 import subprocess
 import time
 
 from phone_agent.windows.connection import is_local, post
-from phone_agent.config.apps_windows import APP_PACKAGES_WINDOWS
+from phone_agent.windows.app_resolver import AppResolver
+
+log = logging.getLogger(__name__)
 
 
 def get_current_app(device_id: str | None = None) -> str:
@@ -184,30 +187,19 @@ def _local_get_current_app() -> str:
 
 
 def _local_launch_app(app_name: str) -> bool:
-    # 1. Try configured exe path
-    exe = APP_PACKAGES_WINDOWS.get(app_name) or APP_PACKAGES_WINDOWS.get(app_name.lower())
-    if exe:
-        try:
-            subprocess.Popen([exe])
-            return True
-        except FileNotFoundError:
-            pass
+    cmd = AppResolver().resolve(app_name)
+    if cmd is None:
+        log.warning("device: could not resolve app %r -- launch failed", app_name)
+        return False
 
-    # 2. Try name directly as command
-    try:
-        subprocess.Popen([app_name])
+    # Tier 5 (Start Menu) already performed the launch via pyautogui
+    if cmd.tier == 5:
         return True
-    except (FileNotFoundError, OSError):
-        pass
 
-    # 3. Start Menu search via Windows shell
     try:
-        import pyautogui
-        pyautogui.hotkey("win")
-        time.sleep(0.5)
-        pyautogui.typewrite(app_name, interval=0.05)
-        time.sleep(0.8)
-        pyautogui.press("enter")
+        subprocess.Popen(cmd.args)
+        log.debug("device: launched %r via tier %d (%s)", app_name, cmd.tier, cmd.resolved_path)
         return True
-    except Exception:
+    except (FileNotFoundError, OSError) as exc:
+        log.error("device: Popen failed for %r (%s): %s", app_name, cmd.resolved_path, exc)
         return False
