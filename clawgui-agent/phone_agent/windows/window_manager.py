@@ -10,6 +10,7 @@ class WindowInfo:
     hwnd: int
     title: str
     visible: bool
+    rect: tuple[int, int, int, int] = (0, 0, 0, 0)
 
 
 def focus_window(title: str, device_id: str | None = None) -> bool:
@@ -24,7 +25,10 @@ def list_windows(device_id: str | None = None) -> list[WindowInfo]:
     if is_local(device_id):
         return _local_list_windows()
     data = post(device_id, "/api/windows/list", {})
-    return [WindowInfo(w["hwnd"], w["title"], w["visible"]) for w in data.get("windows", [])]
+    return [
+        WindowInfo(w["hwnd"], w["title"], w["visible"], tuple(w.get("rect", [0, 0, 0, 0])))
+        for w in data.get("windows", [])
+    ]
 
 
 def minimize_window(title: str, device_id: str | None = None) -> bool:
@@ -88,9 +92,13 @@ def _local_list_windows() -> list[WindowInfo]:
         windows: list[WindowInfo] = []
 
         def cb(hwnd, _):
+            if not win32gui.IsWindowVisible(hwnd):
+                return
             title = win32gui.GetWindowText(hwnd)
-            if title:
-                windows.append(WindowInfo(hwnd=hwnd, title=title, visible=win32gui.IsWindowVisible(hwnd)))
+            if not title:
+                return
+            rect = win32gui.GetWindowRect(hwnd)
+            windows.append(WindowInfo(hwnd=hwnd, title=title, visible=True, rect=rect))
 
         win32gui.EnumWindows(cb, None)
         return windows
