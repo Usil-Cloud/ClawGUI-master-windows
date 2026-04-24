@@ -443,13 +443,23 @@ class IntegrationInputTests(unittest.TestCase):
         import pyautogui
         import win32clipboard
         self._focus_notepad()
+        # Pre-clear clipboard so an empty Notepad field returns "" instead of
+        # stale clipboard content (ctrl+c on empty selection leaves clipboard unchanged).
+        win32clipboard.OpenClipboard()
+        try:
+            win32clipboard.EmptyClipboard()
+        finally:
+            win32clipboard.CloseClipboard()
         pyautogui.hotkey("ctrl", "a")
         time.sleep(0.1)
         pyautogui.hotkey("ctrl", "c")
         time.sleep(0.15)
         win32clipboard.OpenClipboard()
         try:
-            data = win32clipboard.GetClipboardData(win32clipboard.CF_UNICODETEXT)
+            if win32clipboard.IsClipboardFormatAvailable(win32clipboard.CF_UNICODETEXT):
+                data = win32clipboard.GetClipboardData(win32clipboard.CF_UNICODETEXT)
+            else:
+                data = ""
         finally:
             win32clipboard.CloseClipboard()
         return data
