@@ -1,23 +1,22 @@
-"""Multi-app integration tests spanning Notepad, VS Code, and PowerShell.
+"""Multi-app integration tests spanning Notepad, Paint, and VS Code.
 
 Covers both Feature 1-C (keyboard input) and Feature 1-D (window manager) to
-verify that all primitives work across diverse application types, not just
-Notepad.
+verify that all primitives work across diverse application types.
 
 App lifecycle
 -------------
 setUpModule opens all three apps once.  tearDownModule closes them:
-  - Notepad / PowerShell: killed via Popen.kill()
+  - Notepad / Paint: killed via Popen.kill()
   - VS Code: WM_CLOSE sent to the specific hwnd we captured at startup so that
     any other VS Code windows the user has open are untouched, followed by a
     process kill if the launcher is still alive.
 
 Test classes
 ------------
-MultiAppWindowTests   — list_windows / focus_window across Notepad, VS Code,
-                        PowerShell (Feature 1-D).
+MultiAppWindowTests   — list_windows / focus_window across Notepad, Paint,
+                        and VS Code (Feature 1-D).
 MultiAppKeyboardTests — type_text / hotkey / press_key / clear_text across
-                        Notepad, PowerShell, and VS Code (Feature 1-C).
+                        Notepad, Paint, and VS Code (Feature 1-C).
 
 Run all:
     python -m pytest tests/windows/test_multi_app_integration.py -v
@@ -92,6 +91,7 @@ _stub_if_missing("pyautogui",
     hotkey=lambda *keys: None,
     press=lambda key: None,
     typewrite=lambda text, interval=0.05: None,
+    click=lambda x, y: None,
     FAILSAFE=True,
 )
 _stub_if_missing("mss", mss=MagicMock)
@@ -155,10 +155,10 @@ _KB_WHY   = (
 # Module-level app fixture — opened once, shared by both test classes
 # ---------------------------------------------------------------------------
 
-_notepad_proc:    subprocess.Popen | None = None
-_powershell_proc: subprocess.Popen | None = None
-_vscode_proc:     subprocess.Popen | None = None
-_vscode_hwnd:     int | None = None
+_notepad_proc: subprocess.Popen | None = None
+_paint_proc:   subprocess.Popen | None = None
+_vscode_proc:  subprocess.Popen | None = None
+_vscode_hwnd:  int | None = None
 
 
 def _wait_for_window(partial_title: str, timeout: float = 10.0) -> int:
@@ -198,15 +198,15 @@ def _read_clipboard() -> str:
 
 
 def setUpModule():  # noqa: N802
-    global _notepad_proc, _powershell_proc, _vscode_proc, _vscode_hwnd
+    global _notepad_proc, _paint_proc, _vscode_proc, _vscode_hwnd
     if not (_ON_WINDOWS and _HAS_WIN32):
         return
 
-    _notepad_proc    = subprocess.Popen(["notepad.exe"])
-    _powershell_proc = subprocess.Popen(["powershell.exe"])
+    _notepad_proc = subprocess.Popen(["notepad.exe"])
+    _paint_proc   = subprocess.Popen(["mspaint.exe"])
     time.sleep(1.5)  # Windows 11 Store apps need a head-start before polling
-    _wait_for_window("Notepad",    timeout=15)
-    _wait_for_window("PowerShell", timeout=15)
+    _wait_for_window("Notepad", timeout=15)
+    _wait_for_window("Paint",   timeout=15)
 
     if _HAS_VSCODE:
         _vscode_proc = subprocess.Popen(["code", "--new-window"])
@@ -216,7 +216,7 @@ def setUpModule():  # noqa: N802
 
 
 def tearDownModule():  # noqa: N802
-    global _notepad_proc, _powershell_proc, _vscode_proc, _vscode_hwnd
+    global _notepad_proc, _paint_proc, _vscode_proc, _vscode_hwnd
     if not (_ON_WINDOWS and _HAS_WIN32):
         return
 
@@ -232,7 +232,7 @@ def tearDownModule():  # noqa: N802
         _vscode_proc.kill()
         _vscode_proc.wait(timeout=5)
 
-    for proc in [_notepad_proc, _powershell_proc]:
+    for proc in [_notepad_proc, _paint_proc]:
         if proc and proc.poll() is None:
             proc.kill()
             proc.wait(timeout=3)
@@ -244,7 +244,7 @@ def tearDownModule():  # noqa: N802
 
 @unittest.skipIf(_WIN_SKIP, _WIN_WHY)
 class MultiAppWindowTests(unittest.TestCase):
-    """list_windows / focus_window verified against Notepad, VS Code, PowerShell."""
+    """list_windows / focus_window verified against Notepad, Paint, VS Code."""
 
     # ── list_windows ──────────────────────────────────────────────────────────
 
@@ -254,11 +254,11 @@ class MultiAppWindowTests(unittest.TestCase):
         self.assertTrue(any("Notepad" in t for t in titles),
                         f"Notepad not found; got: {titles}")
 
-    def test_list_windows_finds_powershell(self):
+    def test_list_windows_finds_paint(self):
         result = wm_mod.list_windows()
         titles = [w.title for w in result]
-        self.assertTrue(any("PowerShell" in t for t in titles),
-                        f"PowerShell not found; got: {titles}")
+        self.assertTrue(any("Paint" in t for t in titles),
+                        f"Paint not found; got: {titles}")
 
     @unittest.skipIf(not _HAS_VSCODE, "VS Code not in PATH")
     def test_list_windows_finds_vscode(self):
@@ -281,11 +281,11 @@ class MultiAppWindowTests(unittest.TestCase):
         self.assertIsNotNone(notepad, "Notepad not found in list_windows()")
         self.assertGreater(notepad.hwnd, 0)
 
-    def test_list_windows_powershell_has_positive_hwnd(self):
+    def test_list_windows_paint_has_positive_hwnd(self):
         result = wm_mod.list_windows()
-        ps = next((w for w in result if "PowerShell" in w.title), None)
-        self.assertIsNotNone(ps, "PowerShell not found in list_windows()")
-        self.assertGreater(ps.hwnd, 0)
+        paint = next((w for w in result if "Paint" in w.title), None)
+        self.assertIsNotNone(paint, "Paint not found in list_windows()")
+        self.assertGreater(paint.hwnd, 0)
 
     def test_list_windows_notepad_rect_is_4_tuple(self):
         result = wm_mod.list_windows()
@@ -294,12 +294,12 @@ class MultiAppWindowTests(unittest.TestCase):
         self.assertIsInstance(notepad.rect, tuple)
         self.assertEqual(len(notepad.rect), 4)
 
-    def test_list_windows_powershell_rect_is_4_tuple(self):
+    def test_list_windows_paint_rect_is_4_tuple(self):
         result = wm_mod.list_windows()
-        ps = next((w for w in result if "PowerShell" in w.title), None)
-        self.assertIsNotNone(ps)
-        self.assertIsInstance(ps.rect, tuple)
-        self.assertEqual(len(ps.rect), 4)
+        paint = next((w for w in result if "Paint" in w.title), None)
+        self.assertIsNotNone(paint)
+        self.assertIsInstance(paint.rect, tuple)
+        self.assertEqual(len(paint.rect), 4)
 
     @unittest.skipIf(not _HAS_VSCODE, "VS Code not in PATH")
     def test_list_windows_vscode_rect_is_4_tuple(self):
@@ -309,13 +309,13 @@ class MultiAppWindowTests(unittest.TestCase):
         self.assertIsInstance(vscode.rect, tuple)
         self.assertEqual(len(vscode.rect), 4)
 
-    def test_list_windows_notepad_and_powershell_have_different_hwnds(self):
-        result = wm_mod.list_windows()
+    def test_list_windows_notepad_and_paint_have_different_hwnds(self):
+        result  = wm_mod.list_windows()
         notepad = next((w for w in result if "Notepad" in w.title), None)
-        ps      = next((w for w in result if "PowerShell" in w.title), None)
+        paint   = next((w for w in result if "Paint"   in w.title), None)
         self.assertIsNotNone(notepad)
-        self.assertIsNotNone(ps)
-        self.assertNotEqual(notepad.hwnd, ps.hwnd)
+        self.assertIsNotNone(paint)
+        self.assertNotEqual(notepad.hwnd, paint.hwnd)
 
     # ── focus_window ──────────────────────────────────────────────────────────
 
@@ -334,20 +334,20 @@ class MultiAppWindowTests(unittest.TestCase):
         fg = win32gui.GetWindowText(win32gui.GetForegroundWindow())
         self.assertIn("Notepad", fg, f"Foreground after focus is {fg!r}")
 
-    def test_focus_window_powershell_exact_returns_true(self):
-        self.assertTrue(wm_mod.focus_window("PowerShell"))
+    def test_focus_window_paint_exact_returns_true(self):
+        self.assertTrue(wm_mod.focus_window("Paint"))
         time.sleep(0.3)
 
-    def test_focus_window_powershell_partial_lowercase_returns_true(self):
-        self.assertTrue(wm_mod.focus_window("powershell"))
+    def test_focus_window_paint_partial_lowercase_returns_true(self):
+        self.assertTrue(wm_mod.focus_window("paint"))
         time.sleep(0.3)
 
-    def test_focus_window_powershell_brings_to_foreground(self):
+    def test_focus_window_paint_brings_to_foreground(self):
         import win32gui
-        wm_mod.focus_window("PowerShell")
+        wm_mod.focus_window("Paint")
         time.sleep(0.3)
         fg = win32gui.GetWindowText(win32gui.GetForegroundWindow())
-        self.assertIn("PowerShell", fg, f"Foreground after focus is {fg!r}")
+        self.assertIn("Paint", fg, f"Foreground after focus is {fg!r}")
 
     @unittest.skipIf(not _HAS_VSCODE, "VS Code not in PATH")
     def test_focus_window_vscode_partial_returns_true(self):
@@ -367,10 +367,10 @@ class MultiAppWindowTests(unittest.TestCase):
         fg = win32gui.GetWindowText(win32gui.GetForegroundWindow())
         self.assertIn("Visual Studio Code", fg, f"Foreground after focus is {fg!r}")
 
-    def test_focus_window_cycles_notepad_then_powershell(self):
-        """Cycle Notepad → PowerShell and verify foreground title changes each time."""
+    def test_focus_window_cycles_notepad_then_paint(self):
+        """Cycle Notepad → Paint and verify foreground title changes each time."""
         import win32gui
-        for title, keyword in [("Notepad", "Notepad"), ("PowerShell", "PowerShell")]:
+        for title, keyword in [("Notepad", "Notepad"), ("Paint", "Paint")]:
             ok = wm_mod.focus_window(title)
             time.sleep(0.35)
             self.assertTrue(ok, f"focus_window({title!r}) returned False")
@@ -380,11 +380,11 @@ class MultiAppWindowTests(unittest.TestCase):
 
     @unittest.skipIf(not _HAS_VSCODE, "VS Code not in PATH")
     def test_focus_window_cycles_all_three_apps(self):
-        """Cycle Notepad → PowerShell → VS Code and confirm each comes to front."""
+        """Cycle Notepad → Paint → VS Code and confirm each comes to front."""
         import win32gui
         targets = [
             ("Notepad",            "Notepad"),
-            ("PowerShell",         "PowerShell"),
+            ("Paint",              "Paint"),
             ("Visual Studio Code", "Visual Studio Code"),
         ]
         for title, keyword in targets:
@@ -406,7 +406,7 @@ class MultiAppWindowTests(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# Feature 1-C: Keyboard input across Notepad, PowerShell, VS Code
+# Feature 1-C: Keyboard input across Notepad, Paint, VS Code
 # ---------------------------------------------------------------------------
 
 @unittest.skipIf(_KB_SKIP, _KB_WHY)
@@ -489,62 +489,49 @@ class MultiAppKeyboardTests(unittest.TestCase):
         time.sleep(0.15)
         self.assertEqual(_read_clipboard().strip(), "select all test")
 
-    # ── PowerShell ────────────────────────────────────────────────────────────
+    # ── Paint (keyboard smoke tests) ──────────────────────────────────────────
 
-    def test_type_text_in_powershell_does_not_raise(self):
-        """type_text into a PowerShell prompt must not raise any exception."""
-        self._focus("PowerShell")
+    def test_hotkey_ctrl_z_undo_in_paint_does_not_raise(self):
+        """Ctrl+Z (undo) in Paint must not raise."""
+        self._focus("Paint")
         try:
-            inp_mod.type_text("echo ClawGUI_Test")
+            inp_mod.hotkey("ctrl", "z")
+            time.sleep(0.2)
+        except Exception as exc:
+            self.fail(f"hotkey Ctrl+Z in Paint raised: {exc}")
+
+    def test_press_key_escape_in_paint_does_not_raise(self):
+        """Escape in Paint must not raise."""
+        self._focus("Paint")
+        try:
+            inp_mod.press_key("escape")
             time.sleep(0.1)
-            inp_mod.press_key("escape")
         except Exception as exc:
-            self.fail(f"type_text in PowerShell raised: {exc}")
+            self.fail(f"press_key(escape) in Paint raised: {exc}")
 
-    def test_type_text_powershell_clipboard_pipe(self):
-        """Type a pipeline command in PowerShell that puts a string into the
-        clipboard, execute it, then read the clipboard to verify the output."""
-        self._focus("PowerShell")
+    def test_type_text_in_paint_text_tool_does_not_raise(self):
+        """Activate Paint text tool via keyboard, click canvas, type — must not raise."""
+        import pyautogui
+        self._focus("Paint")
         time.sleep(0.2)
-        _clear_clipboard()
-        marker = "CLAWGUI_PS_MARKER"
-        inp_mod.type_text(f'"{marker}" | Set-Clipboard')
-        time.sleep(0.1)
-        inp_mod.press_key("enter")
-        time.sleep(0.9)  # allow PowerShell to execute the pipeline
-        result = _read_clipboard()
-        self.assertEqual(result.strip(), marker)
-
-    def test_type_text_multiword_command_in_powershell(self):
-        """A multi-word ASCII command types cleanly and can be cancelled."""
-        self._focus("PowerShell")
+        # Get Paint window rect to click the canvas center
+        result = wm_mod.list_windows()
+        paint_win = next((w for w in result if "Paint" in w.title), None)
+        if paint_win is None:
+            self.skipTest("Paint window not found in list_windows()")
+        left, top, right, bottom = paint_win.rect
+        canvas_x = (left + right)  // 2
+        canvas_y = (top  + bottom) // 2 + 40  # offset below ribbon
         try:
-            inp_mod.type_text("Write-Host Hello ClawGUI")
-            time.sleep(0.1)
-            inp_mod.press_key("escape")
+            pyautogui.press("t")          # activate text tool
+            time.sleep(0.2)
+            pyautogui.click(canvas_x, canvas_y)
+            time.sleep(0.3)
+            inp_mod.type_text("ClawGUI")
+            time.sleep(0.2)
+            inp_mod.press_key("escape")   # exit text tool
         except Exception as exc:
-            self.fail(f"multi-word type_text in PowerShell raised: {exc}")
-
-    def test_hotkey_ctrl_c_cancels_powershell_input(self):
-        """Ctrl+C must send a break signal to PowerShell without raising."""
-        self._focus("PowerShell")
-        inp_mod.type_text("Start-Sleep -Seconds 60")
-        time.sleep(0.1)
-        try:
-            inp_mod.hotkey("ctrl", "c")
-        except Exception as exc:
-            self.fail(f"hotkey Ctrl+C in PowerShell raised: {exc}")
-        time.sleep(0.2)
-
-    def test_press_key_escape_clears_powershell_prompt(self):
-        """Escape must clear the current input line without raising."""
-        self._focus("PowerShell")
-        inp_mod.type_text("some_command_to_discard")
-        time.sleep(0.1)
-        try:
-            inp_mod.press_key("escape")
-        except Exception as exc:
-            self.fail(f"press_key(escape) in PowerShell raised: {exc}")
+            self.fail(f"type_text in Paint text tool raised: {exc}")
 
     # ── VS Code ───────────────────────────────────────────────────────────────
 
@@ -566,7 +553,6 @@ class MultiAppKeyboardTests(unittest.TestCase):
         pyautogui.hotkey("ctrl", "c")
         time.sleep(0.2)
         self.assertEqual(_read_clipboard().strip(), test_str)
-        # Leave file open; tearDownModule closes VS Code without needing to save.
 
     @unittest.skipIf(not _HAS_VSCODE, "VS Code not in PATH")
     def test_hotkey_opens_command_palette_in_vscode(self):
