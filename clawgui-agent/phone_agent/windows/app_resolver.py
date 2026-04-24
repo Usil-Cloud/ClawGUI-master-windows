@@ -1,4 +1,4 @@
-"""Windows application resolver -- maps a human app name to a launchable command.
+r"""Windows application resolver -- maps a human app name to a launchable command.
 
 Resolution tiers (tried in order, first hit wins)
 --------------------------------------------------

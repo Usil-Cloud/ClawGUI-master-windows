@@ -68,6 +68,32 @@ def _stub_if_missing(name: str, **attrs) -> None:
         _stub(name, **attrs)
 
 
+# ---------------------------------------------------------------------------
+# Runtime capability checks — must run BEFORE stubs so we detect real modules
+# (if stubs were installed first, importing win32gui would "succeed" from the
+# stub and incorrectly set _HAS_WIN32 = True even without real pywin32).
+# ---------------------------------------------------------------------------
+
+_ON_WINDOWS    = platform.system() == "Windows"
+_HAS_WIN32     = False
+_HAS_PYAUTOGUI = False
+_HAS_VSCODE    = bool(shutil.which("code"))
+
+if _ON_WINDOWS:
+    try:
+        import win32gui as _real_w32gui    # noqa: F401
+        import win32con as _real_w32con    # noqa: F401
+        import win32clipboard as _real_w32cb  # noqa: F401
+        _HAS_WIN32 = True
+    except (ImportError, Exception):
+        pass
+    try:
+        import pyautogui
+        pyautogui.FAILSAFE = True
+        _HAS_PYAUTOGUI = True
+    except (ImportError, Exception):
+        pass
+
 _stub_if_missing("win32gui",
     IsWindowVisible=lambda h: True,
     GetWindowText=lambda h: "",
@@ -118,31 +144,6 @@ _stub_if_missing("phone_agent.model.client", ModelClient=MagicMock, ModelConfig=
 _stub_if_missing("phone_agent.model", ModelClient=MagicMock, ModelConfig=MagicMock)
 _stub_if_missing("phone_agent.agent", PhoneAgent=MagicMock)
 _stub_if_missing("phone_agent.agent_ios", IOSPhoneAgent=MagicMock)
-
-# ---------------------------------------------------------------------------
-# Runtime capability checks — must run BEFORE stubs so we detect real modules
-# ---------------------------------------------------------------------------
-
-_ON_WINDOWS    = platform.system() == "Windows"
-_HAS_WIN32     = False
-_HAS_PYAUTOGUI = False
-_HAS_VSCODE    = bool(shutil.which("code"))
-
-if _ON_WINDOWS:
-    try:
-        import importlib
-        importlib.import_module("win32gui")
-        importlib.import_module("win32con")
-        importlib.import_module("win32clipboard")
-        _HAS_WIN32 = True
-    except ImportError:
-        pass
-    try:
-        import pyautogui
-        pyautogui.FAILSAFE = True
-        _HAS_PYAUTOGUI = True
-    except ImportError:
-        pass
 
 # Discord installs to %LOCALAPPDATA%\Discord on every standard Windows install.
 # We probe the folder rather than calling AppResolver at import time so that
@@ -235,8 +236,14 @@ def setUpModule():  # noqa: N802
     if not (_ON_WINDOWS and _HAS_WIN32):
         return
 
+    import win32gui as _wg
     _notepad_proc = subprocess.Popen(["notepad.exe"])
-    _wait_for_window("Notepad", timeout=15)
+    notepad_hwnd = _wait_for_window("Notepad", timeout=30)
+    try:
+        _wg.SetForegroundWindow(notepad_hwnd)
+        time.sleep(0.3)
+    except Exception:
+        pass
 
     if _HAS_DISCORD:
         _discord_proc = _launch_discord()

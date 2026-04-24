@@ -33,6 +33,27 @@ import unittest
 from unittest.mock import MagicMock, call, patch
 
 # ---------------------------------------------------------------------------
+# Capability detection — must run BEFORE any stubs are installed so we
+# distinguish "real pywin32 available" from "stub imported successfully".
+# ---------------------------------------------------------------------------
+
+_ON_WINDOWS    = platform.system() == "Windows"
+_HAS_PYAUTOGUI = False
+_HAS_WIN32GUI  = False
+
+if _ON_WINDOWS:
+    try:
+        import pyautogui as _pg   # noqa: F401
+        _HAS_PYAUTOGUI = True
+    except (ImportError, Exception):
+        pass
+    try:
+        import win32gui as _w32   # noqa: F401
+        _HAS_WIN32GUI = True
+    except (ImportError, Exception):
+        pass
+
+# ---------------------------------------------------------------------------
 # Pre-stub heavy optional deps so device.py imports succeed everywhere.
 # ---------------------------------------------------------------------------
 
@@ -274,22 +295,6 @@ class MockedDeviceTests(unittest.TestCase):
 
 # ── Integration tests (Windows-only) ─────────────────────────────────────────
 
-_ON_WINDOWS    = platform.system() == "Windows"
-_HAS_PYAUTOGUI = False
-_HAS_WIN32GUI  = False
-
-if _ON_WINDOWS:
-    try:
-        import pyautogui as _pg   # noqa: F401
-        _HAS_PYAUTOGUI = True
-    except ImportError:
-        pass
-    try:
-        import win32gui as _w32   # noqa: F401
-        _HAS_WIN32GUI = True
-    except ImportError:
-        pass
-
 _SKIP = not (_ON_WINDOWS and _HAS_PYAUTOGUI and _HAS_WIN32GUI)
 _WHY  = (
     f"Requires Windows + pyautogui + pywin32 "
@@ -324,19 +329,27 @@ class IntegrationDeviceTests(unittest.TestCase):
             cls._proc.wait(timeout=3)
 
     def _open_notepad(self) -> subprocess.Popen:
-        """Open Notepad and wait up to 5 s for the window to appear."""
+        """Open Notepad, wait for the window to appear, and bring it to focus."""
+        import win32gui
         proc = subprocess.Popen(["notepad.exe"])
-        deadline = time.monotonic() + 5.0
+        hwnd = None
+        deadline = time.monotonic() + 10.0
         while time.monotonic() < deadline:
-            import win32gui
             found = []
             def _cb(h, _):
                 if win32gui.IsWindowVisible(h) and "Notepad" in win32gui.GetWindowText(h):
                     found.append(h)
             win32gui.EnumWindows(_cb, None)
             if found:
+                hwnd = found[0]
                 break
             time.sleep(0.1)
+        if hwnd:
+            try:
+                win32gui.SetForegroundWindow(hwnd)
+                time.sleep(0.2)
+            except Exception:
+                pass
         return proc
 
     def _close_notepad(self, proc: subprocess.Popen) -> None:
