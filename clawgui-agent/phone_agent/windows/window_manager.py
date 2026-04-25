@@ -1,4 +1,5 @@
 """Windows window management — focus, enumerate, min/max/close."""
+# Notes: docs/features/window_manager/_index.md
 from __future__ import annotations
 from dataclasses import dataclass
 
@@ -81,7 +82,9 @@ def _local_focus(title: str) -> bool:
         if not hwnd:
             return False
 
-        if win32gui.IsIconic(hwnd):
+        placement = win32gui.GetWindowPlacement(hwnd)
+        show_cmd = placement[1]
+        if show_cmd in (win32con.SW_SHOWMINIMIZED, win32con.SW_SHOWMAXIMIZED):
             win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
 
         # Two-step focus strategy that works even when an Electron/CEF app

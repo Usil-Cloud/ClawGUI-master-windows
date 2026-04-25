@@ -21,6 +21,7 @@ Run only unit tests (safe on any OS):
 Run only integration tests (Windows with deps):
     python -m pytest tests/windows/test_window_manager.py -v -k "Integration"
 """
+# Notes: docs/tests/windows/test_window_manager.md
 from __future__ import annotations
 
 import platform
@@ -608,19 +609,22 @@ class IntegrationWindowManagerTests(unittest.TestCase):
         time.sleep(0.2)
 
     def test_minimize_window_changes_window_state(self):
+        import win32con
         import win32gui
         wm.focus_window("Notepad")
-        time.sleep(0.2)
+        time.sleep(0.3)
         wm.minimize_window("Notepad")
-        time.sleep(0.4)
-        # Find Notepad hwnd and verify it is now iconic (minimized)
+        time.sleep(0.8)
+        # Find Notepad hwnd and verify it is now minimized
         found = []
         def _cb(h, _):
             if "Notepad" in win32gui.GetWindowText(h):
                 found.append(h)
         win32gui.EnumWindows(_cb, None)
         self.assertTrue(found, "Notepad hwnd not found")
-        self.assertTrue(win32gui.IsIconic(found[0]), "Notepad is not minimized")
+        placement = win32gui.GetWindowPlacement(found[0])
+        self.assertEqual(placement[1], win32con.SW_SHOWMINIMIZED,
+                         f"Expected minimized (2), got {placement[1]}")
         # Restore for subsequent tests
         wm.focus_window("Notepad")
         time.sleep(0.3)
