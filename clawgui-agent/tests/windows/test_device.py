@@ -255,12 +255,13 @@ class MockedDeviceTests(unittest.TestCase):
         mock_popen.assert_called_once_with(["notepad.exe"])
         self.assertTrue(result)
 
-    def test_launch_app_unknown_name_tries_directly(self):
-        """Unknown app not in config -> tries subprocess with app name directly."""
-        with patch("subprocess.Popen") as mock_popen:
+    def test_launch_app_unknown_name_returns_false_when_unresolvable(self):
+        """Unknown app that AppResolver cannot resolve returns False; no direct Popen."""
+        from phone_agent.windows.app_resolver import AppResolver
+        with patch.object(AppResolver, "resolve", return_value=None) as mock_resolve:
             result = dv.launch_app("MyCustomApp")
-        # Should try the name as a command
-        mock_popen.assert_called_with(["MyCustomApp"])
+        mock_resolve.assert_called_once_with("MyCustomApp")
+        self.assertFalse(result)
 
     def test_launch_app_subprocess_failure_falls_back_to_start_menu(self):
         pg = _pyautogui_mock()
@@ -321,6 +322,10 @@ class IntegrationDeviceTests(unittest.TestCase):
     def setUpClass(cls):
         import pyautogui
         pyautogui.FAILSAFE = True  # safety net: move to (0,0) to abort
+
+    def setUp(self):
+        import pyautogui
+        pyautogui.moveTo(200, 200)  # ensure cursor is never at a failsafe corner
 
     @classmethod
     def tearDownClass(cls):
@@ -423,9 +428,14 @@ class IntegrationDeviceTests(unittest.TestCase):
 
         self.assertTrue(found, "Notepad window did not appear within 5 seconds")
 
-        # Clean up — kill the Notepad we just launched
-        import subprocess
-        subprocess.run(["taskkill", "/IM", "notepad.exe", "/F"], capture_output=True)
+        # Kill only the Notepad PID we just launched (not any shared session proc).
+        if handles:
+            try:
+                import win32process
+                _, pid = win32process.GetWindowThreadProcessId(handles[0])
+                subprocess.run(["taskkill", "/PID", str(pid), "/F"], capture_output=True)
+            except Exception:
+                pass
 
     def test_get_current_app_returns_nonempty_string(self):
         """_local_get_current_app() should return a non-empty string."""

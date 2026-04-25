@@ -224,10 +224,12 @@ def _exe_candidates(app_name: str) -> list:
     """
     base = app_name.strip()
     slug = base.lower().replace(" ", "")
-    candidates = [
-        f"{base}.exe",
-        f"{slug}.exe",
-    ]
+    seen: set = set()
+    candidates: list = []
+    for name in (f"{base}.exe", f"{slug}.exe"):
+        if name not in seen:
+            seen.add(name)
+            candidates.append(name)
     # common short aliases
     aliases = {
         "visual studio code": "code.exe",

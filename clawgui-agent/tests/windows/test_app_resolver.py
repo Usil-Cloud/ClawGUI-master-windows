@@ -20,32 +20,54 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 # ---------------------------------------------------------------------------
-# Pre-stub Windows-only modules so app_resolver imports cleanly on Linux
+# Pre-stub modules so app_resolver imports cleanly on any OS.
+#
+# Pattern:
+#   _stub_if_missing — tries real import first; stubs only when unavailable.
+#                      Used for OS/optional deps so we don't shadow a real
+#                      module when running alongside other test files.
+#   _force_stub      — always installs the stub (setdefault).
+#                      Used for phone_agent sub-modules that need test doubles
+#                      regardless of what's on sys.path.
 # ---------------------------------------------------------------------------
 
-def _stub(name: str, **attrs) -> types.ModuleType:
+def _stub_if_missing(name: str, **attrs) -> None:
+    if name in sys.modules:
+        return
+    try:
+        __import__(name)
+    except (ImportError, Exception):
+        mod = types.ModuleType(name)
+        for k, v in attrs.items():
+            setattr(mod, k, v)
+        sys.modules[name] = mod
+
+
+def _force_stub(name: str, **attrs) -> None:
     mod = types.ModuleType(name)
     for k, v in attrs.items():
         setattr(mod, k, v)
     sys.modules.setdefault(name, mod)
-    return sys.modules[name]
 
-_stub("win32gui",
+
+_stub_if_missing("win32gui",
     GetForegroundWindow=lambda: 0,
     GetWindowText=lambda h: "",
 )
-_stub("winreg",
+_stub_if_missing("winreg",
     HKEY_LOCAL_MACHINE=0x80000002,
     HKEY_CURRENT_USER=0x80000001,
     OpenKey=MagicMock(side_effect=FileNotFoundError),
     QueryValueEx=MagicMock(return_value=("", 1)),
 )
-_stub("pyautogui",
+_stub_if_missing("pyautogui",
     hotkey=lambda *a: None,
     typewrite=lambda *a, **kw: None,
     press=lambda *a: None,
+    moveTo=lambda x, y: None,
+    FAILSAFE=True,
 )
-_stub("phone_agent.windows.connection",
+_force_stub("phone_agent.windows.connection",
     is_local=lambda device_id: True,
     post=lambda *a, **kw: {},
     ConnectionMode=object,
@@ -54,20 +76,19 @@ _stub("phone_agent.windows.connection",
     verify_connection=lambda *a, **kw: True,
     list_devices=lambda: [],
 )
-
-# Minimal apps_windows stub (Tier 1 config used by resolver)
-_stub("phone_agent.config.apps_windows",
+_force_stub("phone_agent.config.apps_windows",
     APP_PACKAGES_WINDOWS={
         "Notepad": "notepad.exe",
         "notepad": "notepad.exe",
         "Calculator": "calc.exe",
     }
 )
-
-# Ensure phone_agent package stubs exist
-for _pkg in ("phone_agent", "phone_agent.windows", "phone_agent.config"):
-    if _pkg not in sys.modules:
-        sys.modules[_pkg] = types.ModuleType(_pkg)
+# Stub openai + high-level agent modules so phone_agent/__init__.py loads cleanly.
+_stub_if_missing("openai", OpenAI=MagicMock, AsyncOpenAI=MagicMock)
+_stub_if_missing("phone_agent.model.client", ModelClient=MagicMock, ModelConfig=MagicMock)
+_stub_if_missing("phone_agent.model", ModelClient=MagicMock, ModelConfig=MagicMock)
+_stub_if_missing("phone_agent.agent", PhoneAgent=MagicMock)
+_stub_if_missing("phone_agent.agent_ios", IOSPhoneAgent=MagicMock)
 
 from phone_agent.windows.app_resolver import (  # noqa: E402
     AppResolver, LaunchCommand, _exe_candidates, _find_exe_in_dir,

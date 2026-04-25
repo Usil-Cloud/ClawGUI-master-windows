@@ -237,7 +237,18 @@ def setUpModule():  # noqa: N802
         return
 
     import win32gui as _wg
-    _notepad_proc = subprocess.Popen(["notepad.exe"])
+
+    # Reuse the session-shared Notepad rather than spawning a new one.
+    try:
+        from conftest import _shared_notepad
+        shared = _shared_notepad[0]
+    except ImportError:
+        shared = None
+    if shared is not None:
+        _notepad_proc = shared
+    else:
+        _notepad_proc = subprocess.Popen(["notepad.exe"])
+
     notepad_hwnd = _wait_for_window("Notepad", timeout=30)
     try:
         _wg.SetForegroundWindow(notepad_hwnd)
@@ -251,8 +262,13 @@ def setUpModule():  # noqa: N802
         _discord_hwnd = _wait_for_window("Discord", timeout=30)
 
     if _HAS_VSCODE:
-        _vscode_proc = subprocess.Popen(["code", "--new-window"])
-        _vscode_hwnd = _wait_for_window("Visual Studio Code", timeout=15)
+        code_exe = shutil.which("code")
+        if code_exe:
+            try:
+                _vscode_proc = subprocess.Popen([code_exe, "--new-window"])
+                _vscode_hwnd = _wait_for_window("Visual Studio Code", timeout=15)
+            except (FileNotFoundError, OSError):
+                pass  # VS Code tests will be skipped via _HAS_VSCODE guard
 
     time.sleep(0.8)  # let all apps finish rendering before tests begin
 
@@ -264,19 +280,30 @@ def tearDownModule():  # noqa: N802
 
     # Close Discord and VS Code by their captured hwnds so unrelated windows
     # belonging to the same app are not affected.
+    # WM_CLOSE is sent first (polite), then _kill_window_process ensures the
+    # owning process is gone even if a "save changes?" dialog blocked the close.
+    from phone_agent.windows.window_manager import _kill_window_process
     for hwnd, proc in [(_discord_hwnd, _discord_proc), (_vscode_hwnd, _vscode_proc)]:
         if hwnd:
             try:
                 import win32gui, win32con
                 win32gui.PostMessage(hwnd, win32con.WM_CLOSE, 0, 0)
-                time.sleep(0.6)
+                time.sleep(0.5)
+                if win32gui.IsWindow(hwnd):
+                    _kill_window_process(hwnd)
             except Exception:
                 pass
         if proc and proc.poll() is None:
             proc.kill()
             proc.wait(timeout=5)
 
-    if _notepad_proc and _notepad_proc.poll() is None:
+    # Notepad is owned by the session-shared fixture; do not kill it here.
+    try:
+        from conftest import _shared_notepad
+        _notepad_owned = _notepad_proc is not _shared_notepad[0]
+    except ImportError:
+        _notepad_owned = True
+    if _notepad_owned and _notepad_proc and _notepad_proc.poll() is None:
         _notepad_proc.kill()
         _notepad_proc.wait(timeout=3)
 

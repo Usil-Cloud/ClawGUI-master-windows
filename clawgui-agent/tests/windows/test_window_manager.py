@@ -492,13 +492,23 @@ class IntegrationWindowManagerTests(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls._proc = subprocess.Popen(["notepad.exe"])
+        try:
+            from conftest import _shared_notepad
+            shared = _shared_notepad[0]
+        except ImportError:
+            shared = None
+        if shared is not None:
+            cls._proc = shared
+            cls._owns_proc = False
+        else:
+            cls._proc = subprocess.Popen(["notepad.exe"])
+            cls._owns_proc = True
         cls._wait_for_notepad()
         time.sleep(0.5)
 
     @classmethod
     def tearDownClass(cls):
-        if cls._proc is not None:
+        if getattr(cls, "_owns_proc", True) and cls._proc is not None:
             cls._proc.kill()
             cls._proc.wait(timeout=3)
 

@@ -311,20 +311,31 @@ class IntegrationScreenshotTests(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls._proc = subprocess.Popen(["notepad.exe"])
-        deadline = time.monotonic() + 5.0
-        while time.monotonic() < deadline:
-            if sc._find_window(cls.NOTEPAD_TITLE):
-                break
-            time.sleep(0.1)
+        try:
+            from conftest import _shared_notepad
+            shared = _shared_notepad[0]
+        except ImportError:
+            shared = None
+        if shared is not None:
+            cls._proc = shared
+            cls._owns_proc = False
         else:
-            cls._proc.kill()
-            raise RuntimeError("Notepad did not open within 5 seconds.")
+            cls._proc = subprocess.Popen(["notepad.exe"])
+            cls._owns_proc = True
+            deadline = time.monotonic() + 5.0
+            while time.monotonic() < deadline:
+                if sc._find_window(cls.NOTEPAD_TITLE):
+                    break
+                time.sleep(0.1)
+            else:
+                cls._proc.kill()
+                raise RuntimeError("Notepad did not open within 5 seconds.")
 
     @classmethod
     def tearDownClass(cls):
-        cls._proc.kill()
-        cls._proc.wait(timeout=3)
+        if getattr(cls, "_owns_proc", True) and cls._proc is not None:
+            cls._proc.kill()
+            cls._proc.wait(timeout=3)
 
     def _full_size(self):
         return sc.get_screen_size()
