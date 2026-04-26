@@ -4,6 +4,7 @@ The KillSwitch message pump and GetLastInputInfo polling require Windows;
 those paths are smoke-checked behind a platform skip.  Hotkey parsing,
 state tracking, and the countdown banner are tested everywhere.
 """
+# Notes: docs/tests/windows/test_safety.md
 from __future__ import annotations
 
 import io

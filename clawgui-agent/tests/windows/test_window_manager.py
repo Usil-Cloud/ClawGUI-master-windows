@@ -111,6 +111,8 @@ def _win32con_mock() -> MagicMock:
     c.SW_MINIMIZE = 6
     c.SW_MAXIMIZE = 3
     c.SW_RESTORE = 9
+    c.SW_SHOWMINIMIZED = 2
+    c.SW_SHOWMAXIMIZED = 3
     c.WM_CLOSE = 0x0010
     return c
 
@@ -267,6 +269,8 @@ class MockedWindowManagerTests(unittest.TestCase):
     def test_focus_window_restores_minimized_window(self):
         g = _win32gui_mock(is_iconic=True)
         c = _win32con_mock()
+        # Return a placement tuple where showCmd (index 1) == SW_SHOWMINIMIZED
+        g.GetWindowPlacement.return_value = (0, c.SW_SHOWMINIMIZED, 0, (0, 0, 0, 0), (0, 0, 800, 600))
 
         def fake_enum(cb, _):
             cb(5003, None)
@@ -613,16 +617,12 @@ class IntegrationWindowManagerTests(unittest.TestCase):
         import win32gui
         wm.focus_window("Notepad")
         time.sleep(0.3)
+        # Capture the exact hwnd that minimize_window will operate on
+        target_hwnd = wm._find_hwnd("Notepad")
+        self.assertIsNotNone(target_hwnd, "Notepad hwnd not found before minimize")
         wm.minimize_window("Notepad")
         time.sleep(0.8)
-        # Find Notepad hwnd and verify it is now minimized
-        found = []
-        def _cb(h, _):
-            if "Notepad" in win32gui.GetWindowText(h):
-                found.append(h)
-        win32gui.EnumWindows(_cb, None)
-        self.assertTrue(found, "Notepad hwnd not found")
-        placement = win32gui.GetWindowPlacement(found[0])
+        placement = win32gui.GetWindowPlacement(target_hwnd)
         self.assertEqual(placement[1], win32con.SW_SHOWMINIMIZED,
                          f"Expected minimized (2), got {placement[1]}")
         # Restore for subsequent tests

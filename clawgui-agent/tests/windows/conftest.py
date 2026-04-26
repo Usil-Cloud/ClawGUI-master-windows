@@ -12,6 +12,7 @@ Every Windows integration test session gets:
 
 Set ``CLAWGUI_TEST_SAFETY=0`` to bypass all of this (CI environments).
 """
+# Notes: docs/tests/windows/conftest.md
 from __future__ import annotations
 
 import platform

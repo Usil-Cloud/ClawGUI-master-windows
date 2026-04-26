@@ -20,6 +20,7 @@ Run only unit tests (safe on any OS):
 Run only integration tests (Windows with deps):
     python -m pytest tests/windows/test_input.py -v -k "Integration"
 """
+# Notes: docs/tests/windows/test_input.md
 from __future__ import annotations
 
 import platform

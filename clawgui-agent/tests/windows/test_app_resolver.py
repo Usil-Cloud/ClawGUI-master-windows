@@ -9,6 +9,7 @@ Unit tests (MockedResolverTests)
 Run:
     pytest tests/windows/test_app_resolver.py -v -k "not Integration"
 """
+# Notes: docs/tests/windows/test_app_resolver.md
 from __future__ import annotations
 
 import subprocess

@@ -17,6 +17,7 @@ Run all tests:
 Run only unit tests (safe on any OS):
     pytest tests/windows/test_screenshot.py -v -k "not Integration"
 """
+# Notes: docs/tests/windows/test_screenshot.md
 from __future__ import annotations
 
 import base64

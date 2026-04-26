@@ -32,6 +32,7 @@ Run only window tests:
 Run only keyboard tests:
     python -m pytest tests/windows/test_multi_app_integration.py -v -k "Keyboard"
 """
+# Notes: docs/tests/windows/test_multi_app_integration.md
 from __future__ import annotations
 
 import os
