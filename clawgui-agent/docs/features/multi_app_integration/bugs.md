@@ -2,7 +2,7 @@
 name: Multi-App Integration bug tracker
 description: Bug and observation log for the cross-app integration test suite. Anchors per bug for cross-linking.
 type: project
-last_updated: 2026-04-27 (Bug 3 + Bug 4 verified resolved)
+last_updated: 2026-04-27 (all four bugs resolved)
 status: active
 ---
 
@@ -16,13 +16,14 @@ status: active
 > * supports adopting pre-opened apps via `CLAWGUI_ADOPT_APPS` env or
 >   `~/.clawgui/adopt.json` for slow-start apps like Unreal Engine 5.
 >
-> Bugs 1 and 2 (intermittent focus failures) are deferred per Q4 — likely
-> dependent on the same instance-tracking root cause; re-evaluate after
-> manual verification of 3 + 4.
+> Bugs 1 and 2 (intermittent focus failures) resolved as a side effect of
+> Bugs 3 + 4 fix. Root cause confirmed: stray duplicate app instances from
+> prior runs were racing for foreground — eliminating duplicates (Bug 3 fix)
+> removed the race condition. Verified by user on 2026-04-27.
 
 ## Bug 1 — failure on first test action  {#bug-1}
 
-**Status:** open · **Severity:** medium · **Reported:** 2026-04-27
+**Status:** resolved · **Severity:** medium · **Reported:** 2026-04-27 · **Fixed:** 2026-04-27 · **Verified:** 2026-04-27
 
 **Symptom(s).** I observed this bug after I ran the 'test_window_manager.py' script (I'm unsure if there's a relation between the two scripts that caused this flow to fail because when I re-ran these two scripts in the same order, this action PASSED on the following runs, so just point out this observation). FAILED status on 'tests/windows/test_multi_app_integration.py::MultiAppWindowTests::test_focus_window_cycles_all_three_apps'. AssertionError: 'Notepad' not found in 'Friends - Discord' : After focus_window('Notepad'), foreground is 'Friends - Discord'. Luis' observation: all apps opened up and were cycled so unsure about what caused the error to show. 
 
@@ -34,14 +35,16 @@ See error screenshot @ 'Project Ready Player\ClawGUI-master\clawgui-agent\docs\f
 
 **Where.** `tests/windows/test_multi_app_integration.py::MultiAppWindowTests::test_focus_window_cycles_all_three_apps` (test or helper name)
 
-**Suspected cause.** Unknown.
+**Suspected cause.** Stray duplicate app instances from prior runs (Bug 3) were racing for foreground. When multiple Discord or VS Code windows existed, `focus_window` would bring one to front but the wrong PID would sometimes win the race before the assertion fired.
 
-**Fix / workaround.** What we did, or what's blocking. [update once resolved]
+**Fix / workaround.** Resolved as a side effect of Bug 3 fix (`app_registry.py` cross-run PID dedup). With only one instance of each app open, the foreground race no longer occurs.
+
+**Verification result (2026-04-27).** User confirmed no recurrence after Bug 3/4 fix was applied.
 
 
 ## Bug 2 — Inconsistency after successful runs {#bug-2}
 
-**Status:** open · **Severity:** high · **Reported:** 2027-04-27
+**Status:** resolved · **Severity:** high · **Reported:** 2026-04-27 · **Fixed:** 2026-04-27 · **Verified:** 2026-04-27
 
 **Symptom(s).** After I ran the 'test_multi_app_integration.py' script twice to make sure follow up runs don't error out, I did actually run into an error on this sanity test. See the two successful runs @ 'Project Ready Player\ClawGUI-master\clawgui-agent\docs\features\multi_app_integration\bug_screenshots\phase1D_successful_runs.png', then see failure @ 'Project Ready Player\ClawGUI-master\clawgui-agent\docs\features\multi_app_integration\bug_screenshots\phase1D_followup_failure_runs.png'. 
 
@@ -51,10 +54,11 @@ See error screenshot @ 'Project Ready Player\ClawGUI-master\clawgui-agent\docs\f
 
 **Where.** `tests/windows/test_multi_app_integration.py::MultiAppWindowTests.test_focus_window_notepad_brings_to_foreground` (test or helper name)
 
-**Suspected cause.** Unsure.
+**Suspected cause.** On the second and subsequent runs, duplicate app instances accumulated (Bug 3). `test_focus_window_notepad_brings_to_foreground` would call `focus_window('Notepad')` but with two Notepad windows present, the wrong one could win foreground, causing the assertion against the active window title to fail intermittently.
 
-**Fix / workaround.** What we did, or what's blocking.
--->
+**Fix / workaround.** Resolved as a side effect of Bug 3 fix. With `app_registry.py` reusing alive PIDs across runs, only one Notepad instance is active per app (ignoring the known session-conftest dual-instance, which is static and does not compete for focus), eliminating the multi-instance race.
+
+**Verification result (2026-04-27).** User confirmed no recurrence after Bug 3/4 fix was applied.
 
 
 
