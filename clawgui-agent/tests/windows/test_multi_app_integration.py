@@ -5,12 +5,21 @@ verify that all primitives work across diverse application types.
 
 App lifecycle
 -------------
-setUpModule opens all three apps once.  tearDownModule closes them:
-  - Notepad: killed via Popen.kill()
-  - Discord: WM_CLOSE sent to the specific hwnd we captured at startup so that
-    any other Discord windows the user has open are untouched, followed by a
-    process kill if the launcher is still alive.
-  - VS Code: same hwnd-targeted WM_CLOSE + process kill approach.
+setUpModule discovers or spawns each app via the PID-scoped app_registry:
+
+  1. ``reload_owned_from_disk`` re-registers any still-alive PIDs spawned by
+     a previous test run (fixes Bug 3 — duplicate spawns on re-run).
+  2. ``auto_adopt_from_config`` reads ``CLAWGUI_ADOPT_APPS`` /
+     ``~/.clawgui/adopt.json`` and registers matching running PIDs as
+     ADOPTED — these will never be closed at teardown.
+  3. For each app: reuse the alive OWNED or ADOPTED PID if one exists,
+     otherwise spawn a fresh instance via ``app_registry.spawn``. After the
+     window appears, ``register_hwnd_pid`` captures the actual renderer PID
+     (relevant for VS Code, whose launcher exits immediately).
+
+tearDownModule closes only OWNED PIDs via ``safe_close_hwnd`` — adopted
+windows and any unrelated user windows are skipped untouched (fixes Bug 4 —
+user apps being force-closed).
 
 Discord is resolved via AppResolver (tiers 1-4; tier 5 Start Menu is excluded
 from detection to avoid opening the Start Menu at import time).  If Discord is
@@ -193,6 +202,38 @@ def _wait_for_window(partial_title: str, timeout: float = 10.0) -> int:
     raise RuntimeError(f"Window {partial_title!r} did not appear within {timeout}s")
 
 
+def _wait_for_window_with_pid(partial_title: str, pid: int, timeout: float = 15.0) -> int:
+    """Like _wait_for_window but only returns hwnds owned by *pid* (or its descendants).
+
+    Used for the Bug 3 / Bug 4 fix: when reusing a PID from a prior run we
+    must not match a window owned by some unrelated process that happens to
+    share the title (e.g. user's own VS Code instance).
+    """
+    import win32gui
+    import win32process
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        found: list[int] = []
+        def _cb(h, _):
+            if not win32gui.IsWindowVisible(h):
+                return
+            if partial_title.lower() not in win32gui.GetWindowText(h).lower():
+                return
+            try:
+                _, win_pid = win32process.GetWindowThreadProcessId(h)
+            except Exception:
+                return
+            if win_pid == pid:
+                found.append(h)
+        win32gui.EnumWindows(_cb, None)
+        if found:
+            return found[0]
+        time.sleep(0.15)
+    raise RuntimeError(
+        f"Window {partial_title!r} owned by pid={pid} did not appear within {timeout}s"
+    )
+
+
 def _clear_clipboard() -> None:
     import win32clipboard
     win32clipboard.OpenClipboard()
@@ -213,12 +254,11 @@ def _read_clipboard() -> str:
         win32clipboard.CloseClipboard()
 
 
-def _launch_discord() -> subprocess.Popen | None:
-    """Resolve and launch Discord via AppResolver (tiers 1-4 only).
+def _discord_launch_args() -> list[str] | None:
+    """Resolve Discord launch args via AppResolver (tiers 1-4 only).
 
     Tier 5 (Start Menu via pyautogui) is intentionally excluded: it actually
     opens the Start Menu as a side-effect, which is disruptive in a test run.
-    Returns the Popen handle on success, or None if Discord is not installed.
     """
     from phone_agent.windows.app_resolver import AppResolver, LaunchCommand
 
@@ -229,7 +269,47 @@ def _launch_discord() -> subprocess.Popen | None:
     cmd: LaunchCommand | None = _NoStartMenuResolver().resolve("Discord")
     if cmd is None or not cmd.args:
         return None
-    return subprocess.Popen(cmd.args)
+    return list(cmd.args)
+
+
+def _resolve_or_spawn(label: str, exe_substr: str, title_substr: str,
+                      args: list[str], timeout: float = 30.0) -> tuple[int, int] | None:
+    """Reuse an OWNED/ADOPTED instance, else spawn one. Returns (hwnd, pid) or None.
+
+    Order:
+      1. find_alive_owned_pid → window owned by that PID (cross-run reuse)
+      2. find_adopted_pid     → window owned by that PID (user pre-opened)
+      3. spawn() and wait for window
+    """
+    from phone_agent.windows import app_registry as reg
+
+    pid = reg.find_alive_owned_pid(exe_substr) or reg.find_adopted_pid(exe_substr)
+    if pid:
+        try:
+            hwnd = _wait_for_window_with_pid(title_substr, pid, timeout=timeout)
+            return hwnd, pid
+        except RuntimeError:
+            # Stale entry — fall through to spawn
+            pass
+
+    try:
+        proc = reg.spawn(label, args)
+    except (FileNotFoundError, OSError):
+        return None
+
+    try:
+        hwnd = _wait_for_window(title_substr, timeout=timeout)
+    except RuntimeError:
+        if proc.poll() is None:
+            proc.kill()
+        return None
+
+    real_pid = reg.register_hwnd_pid(hwnd, label) or proc.pid
+    return hwnd, real_pid
+
+
+# Captured (hwnd, pid) for each app — used by tearDown to close only what we own.
+_apps: dict[str, tuple[int, int]] = {}
 
 
 def setUpModule():  # noqa: N802
@@ -238,75 +318,87 @@ def setUpModule():  # noqa: N802
         return
 
     import win32gui as _wg
+    from phone_agent.windows import app_registry as reg
 
-    # Reuse the session-shared Notepad rather than spawning a new one.
+    # Bug 3 fix: reload alive OWNED PIDs from prior runs so we reuse, not duplicate.
+    reg.reload_owned_from_disk()
+    # Bug 4 partial: pre-register any user-opened apps the user has marked for adoption.
+    reg.auto_adopt_from_config()
+
+    # ── Notepad ──────────────────────────────────────────────────────────
+    # Session-shared Notepad takes precedence (already registered in conftest).
     try:
         from conftest import _shared_notepad
         shared = _shared_notepad[0]
     except ImportError:
         shared = None
+
     if shared is not None:
         _notepad_proc = shared
+        notepad_hwnd = _wait_for_window("Notepad", timeout=30)
     else:
-        _notepad_proc = subprocess.Popen(["notepad.exe"])
+        result = _resolve_or_spawn("Notepad", "notepad.exe", "Notepad",
+                                   ["notepad.exe"], timeout=30)
+        if result is None:
+            raise RuntimeError("Failed to bring up Notepad")
+        notepad_hwnd, _ = result
 
-    notepad_hwnd = _wait_for_window("Notepad", timeout=30)
+    _apps["notepad"] = (notepad_hwnd, reg.pid_for_hwnd(notepad_hwnd))
     try:
         _wg.SetForegroundWindow(notepad_hwnd)
         time.sleep(0.3)
     except Exception:
         pass
 
+    # ── Discord ──────────────────────────────────────────────────────────
     if _HAS_DISCORD:
-        _discord_proc = _launch_discord()
-        # Discord (Electron) is slow — give it a generous startup window
-        _discord_hwnd = _wait_for_window("Discord", timeout=30)
+        d_args = _discord_launch_args()
+        if d_args:
+            result = _resolve_or_spawn("Discord", "discord.exe", "Discord",
+                                       d_args, timeout=30)
+            if result is not None:
+                _discord_hwnd, _ = result
+                _apps["discord"] = result
 
+    # ── VS Code ──────────────────────────────────────────────────────────
     if _HAS_VSCODE:
         code_exe = shutil.which("code")
         if code_exe:
-            try:
-                _vscode_proc = subprocess.Popen([code_exe, "--new-window"])
-                _vscode_hwnd = _wait_for_window("Visual Studio Code", timeout=15)
-            except (FileNotFoundError, OSError):
-                pass  # VS Code tests will be skipped via _HAS_VSCODE guard
+            # The launcher PID exits; register_hwnd_pid (inside _resolve_or_spawn)
+            # captures the real renderer PID for teardown.
+            result = _resolve_or_spawn("VSCode", "code.exe", "Visual Studio Code",
+                                       [code_exe, "--new-window"], timeout=20)
+            if result is not None:
+                _vscode_hwnd, _ = result
+                _apps["vscode"] = result
 
     time.sleep(0.8)  # let all apps finish rendering before tests begin
 
 
 def tearDownModule():  # noqa: N802
+    """Bug-4 fix: close only OWNED PIDs. Adopted/unknown windows untouched."""
     global _notepad_proc, _discord_proc, _discord_hwnd, _vscode_proc, _vscode_hwnd
     if not (_ON_WINDOWS and _HAS_WIN32):
         return
 
-    # Close Discord and VS Code by their captured hwnds so unrelated windows
-    # belonging to the same app are not affected.
-    # WM_CLOSE is sent first (polite), then _kill_window_process ensures the
-    # owning process is gone even if a "save changes?" dialog blocked the close.
-    from phone_agent.windows.window_manager import _kill_window_process
-    for hwnd, proc in [(_discord_hwnd, _discord_proc), (_vscode_hwnd, _vscode_proc)]:
-        if hwnd:
-            try:
-                import win32gui, win32con
-                win32gui.PostMessage(hwnd, win32con.WM_CLOSE, 0, 0)
-                time.sleep(0.5)
-                if win32gui.IsWindow(hwnd):
-                    _kill_window_process(hwnd)
-            except Exception:
-                pass
-        if proc and proc.poll() is None:
-            proc.kill()
-            proc.wait(timeout=5)
+    from phone_agent.windows import app_registry as reg
 
-    # Notepad is owned by the session-shared fixture; do not kill it here.
+    # The session-shared Notepad is owned by conftest and must survive this module.
     try:
         from conftest import _shared_notepad
-        _notepad_owned = _notepad_proc is not _shared_notepad[0]
+        shared_notepad_proc = _shared_notepad[0]
     except ImportError:
-        _notepad_owned = True
-    if _notepad_owned and _notepad_proc and _notepad_proc.poll() is None:
-        _notepad_proc.kill()
-        _notepad_proc.wait(timeout=3)
+        shared_notepad_proc = None
+
+    for app_key, (hwnd, _pid) in list(_apps.items()):
+        if app_key == "notepad" and shared_notepad_proc is not None:
+            # session-shared — leave it alone
+            continue
+        # safe_close_hwnd is a no-op for adopted/unknown PIDs by design
+        reg.safe_close_hwnd(hwnd)
+
+    reg.persist()
+    _apps.clear()
 
 
 # ---------------------------------------------------------------------------

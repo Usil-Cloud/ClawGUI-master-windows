@@ -251,7 +251,11 @@ class MockedDeviceTests(unittest.TestCase):
     # -- launch_app -----------------------------------------------------------
 
     def test_launch_app_known_name_uses_subprocess(self):
-        with patch("subprocess.Popen") as mock_popen:
+        # _local_launch_app dedupes against an existing window before spawning;
+        # bypass that branch so the test exercises the Popen path on dev
+        # machines that already have Notepad open.
+        with patch("subprocess.Popen") as mock_popen, \
+             patch.object(dv, "_find_running_window", return_value=None):
             result = dv.launch_app("Notepad")
         mock_popen.assert_called_once_with(["notepad.exe"])
         self.assertTrue(result)
