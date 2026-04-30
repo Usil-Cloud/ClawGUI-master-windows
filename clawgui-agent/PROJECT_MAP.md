@@ -11,16 +11,30 @@ Top-level index of features and their docs. See [docs/CONVENTIONS.md](docs/CONVE
 | 1-B | App Resolver (helper for 1-B) | `phone_agent/windows/app_resolver.py`        | _pending_                                                           | active   |
 | 1-C | Keyboard Input                | `phone_agent/windows/input.py`               | _pending_                                                           | active   |
 | 1-D | Window Manager                | `phone_agent/windows/window_manager.py`      | [docs/features/window_manager/_index.md](docs/features/window_manager/_index.md) | active   |
-| 1-E | **Connection Manager**        | `phone_agent/windows/connection.py`          | [docs/features/connection_manager/_index.md](docs/features/connection_manager/_index.md) | **active — current focus** |
-| 1-F | GUI-Owl Perception Adapter    | `phone_agent/perception/gui_owl_adapter.py`  | _pending_                                                           | not started |
+| 1-E | Connection Manager            | `phone_agent/windows/connection.py`          | [docs/features/connection_manager/_index.md](docs/features/connection_manager/_index.md) | active   |
+| 1-F | **GUI-Owl Perception Adapter** | `phone_agent/perception/gui_owl_adapter.py` | [docs/features/gui_owl_perception/_index.md](docs/features/gui_owl_perception/_index.md) | **active — current focus** |
 | 1-G | Step-Independent Memory       | `phone_agent/memory/step_memory.py`          | _pending_                                                           | not started |
-| 1-H | Public API + DeviceFactory    | `phone_agent/windows/__init__.py` + factory  | _pending_                                                           | not started |
+| 1-H | **MCP Server (5 top-level tools)** | `phone_agent/windows/mcp_server.py` + `mcp_handlers/` | [docs/features/mcp_server/_index.md](docs/features/mcp_server/_index.md) | active — skeleton |
 
 ## Cross-cutting integration tests
 
 | Suite | Source | Primary Doc | Status |
 |-------|--------|-------------|--------|
 | Multi-App Integration (1-C + 1-D) | `tests/windows/test_multi_app_integration.py` | [docs/features/multi_app_integration/_index.md](docs/features/multi_app_integration/_index.md) | active |
+| Phase 1 end-of-phase smoke         | `tests/integration/cross_feature/test_phase1_smoke.py` _(pending)_ | [docs/INTEGRATION_CONTRACT.md](docs/INTEGRATION_CONTRACT.md) | not started |
+
+## Integration contract
+
+Public dataclasses and HTTP wire formats that cross feature boundaries are
+tracked in [docs/INTEGRATION_CONTRACT.md](docs/INTEGRATION_CONTRACT.md). Update
+it in the same PR as any shape change.
+
+## Reusable blocks
+
+Shared modules used by more than one feature live in
+[docs/REUSABLE_BLOCKS.md](docs/REUSABLE_BLOCKS.md). Consult before writing any
+new utility; update when adding a new shared module or a new consumer of an
+existing one.
 
 ## Cross-cutting
 

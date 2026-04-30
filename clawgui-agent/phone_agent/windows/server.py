@@ -309,8 +309,16 @@ def list_windows():
     return {"windows": [{"hwnd": w.hwnd, "title": w.title, "visible": w.visible} for w in _lw()]}
 
 
-# ── MCP tools ─────────────────────────────────────────────────────────────────
-# Only registered if mcp package is available.
+# ── MCP tools (DEPRECATED) ────────────────────────────────────────────────────
+# These 9 capability-shaped tools were the original MCP surface, mounted on
+# /mcp over HTTP/SSE. They violate the design rule for 1-H ("max 5 top-level,
+# goal-shaped tools") and are being replaced by `phone_agent/windows/mcp_server.py`,
+# which exposes 5 goal-shaped tools over stdio.
+#
+# Status: kept temporarily so existing /mcp clients don't break. Remove once
+# the new stdio MCP server reaches parity. See:
+#   docs/features/mcp_server/_index.md
+#   docs/features/mcp_server/design.md  (section "Relationship to the existing FastAPI server")
 
 if HAS_MCP and mcp is not None:
 
