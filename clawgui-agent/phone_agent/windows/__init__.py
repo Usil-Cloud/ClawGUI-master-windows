@@ -5,11 +5,16 @@ route to it without modification to the agent loop.
 """
 from phone_agent.windows.connection import (
     ConnectionMode,
+    ConnectionProfile,
     DeviceInfo,
     WindowsConnection,
+    detect_mode,
+    forward_action,
+    get_connection,
     is_local,
     list_devices,
     verify_connection,
+    verify_device_info,
 )
 from phone_agent.windows.device import (
     back,
@@ -93,11 +98,16 @@ __all__ = [
     "WindowInfo",
     # connection
     "ConnectionMode",
+    "ConnectionProfile",
     "DeviceInfo",
     "WindowsConnection",
+    "detect_mode",
+    "forward_action",
+    "get_connection",
     "is_local",
     "list_devices",
     "verify_connection",
+    "verify_device_info",
     # ADB-compat stubs
     "detect_and_set_adb_keyboard",
     "restore_keyboard",

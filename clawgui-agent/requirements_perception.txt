@@ -1,0 +1,35 @@
+# Pinned dependencies for the GUI-Owl perception runtime (Phase 1-F live tests).
+#
+# This file is consumed by scripts/dev/setup_gui_owl_env.py, which creates an
+# isolated venv at %USERPROFILE%/.clawgui/venv-perception/. It is NOT installed
+# into the project's main env — keep them separate so the inference stack
+# (multi-GB) doesn't pollute every developer's machine.
+#
+# Companion doc: docs/features/gui_owl_perception/test_machine_setup.md
+# Target: Windows + NVIDIA GPU, CUDA 12.1 wheels.
+
+# Pull torch CUDA wheels from PyTorch's index (additive — PyPI still primary).
+--extra-index-url https://download.pytorch.org/whl/cu121
+
+# Core inference
+torch==2.4.1+cu121
+torchvision==0.19.1+cu121
+
+transformers==4.51.3
+accelerate==1.0.1
+bitsandbytes==0.44.1     # int4 quantization on CUDA Windows
+qwen-vl-utils==0.0.10
+safetensors==0.4.5
+sentencepiece==0.2.0
+tokenizers==0.21.0
+huggingface-hub==0.26.2
+
+# Image handling — match the project's main pin
+Pillow==12.0.0
+
+# vLLM client path (Q2-B unverified runtime)
+openai==1.54.4
+
+# HTTP server (stdlib http.server is sufficient; no Flask/FastAPI dep)
+# requests already in main requirements but listed here for venv self-sufficiency
+requests==2.33.1

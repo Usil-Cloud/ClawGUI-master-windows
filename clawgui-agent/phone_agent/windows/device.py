@@ -1,10 +1,13 @@
 """Windows device control — matches ClawGUI DeviceFactory interface exactly."""
 from __future__ import annotations
+import logging
 import subprocess
 import time
 
 from phone_agent.windows.connection import is_local, post
-from phone_agent.config.apps_windows import APP_PACKAGES_WINDOWS
+from phone_agent.windows.app_resolver import AppResolver
+
+log = logging.getLogger(__name__)
 
 
 def get_current_app(device_id: str | None = None) -> str:
@@ -183,31 +186,97 @@ def _local_get_current_app() -> str:
         return "Unknown"
 
 
-def _local_launch_app(app_name: str) -> bool:
-    # 1. Try configured exe path
-    exe = APP_PACKAGES_WINDOWS.get(app_name) or APP_PACKAGES_WINDOWS.get(app_name.lower())
-    if exe:
-        try:
-            subprocess.Popen([exe])
+def _find_running_window(app_name: str) -> int | None:
+    """Return hwnd of an existing visible window whose process matches app_name.
+
+    Enumerates all visible top-level windows, resolves each PID to its exe
+    filename, and compares against the candidate exe names for app_name.
+    Returns the first match, or None if the app is not running.
+    """
+    try:
+        import win32api
+        import win32con
+        import win32gui
+        import win32process
+        from pathlib import Path
+        from phone_agent.windows.app_resolver import _exe_candidates
+
+        candidates = {c.lower() for c in _exe_candidates(app_name)}
+        # also cover simple slug forms not in the alias table
+        candidates.add(app_name.lower() + ".exe")
+        candidates.add(app_name.lower().replace(" ", "") + ".exe")
+
+        result: list[int] = []
+
+        def _cb(hwnd: int, _) -> bool:
+            if result:
+                return True  # already found one
+            if not win32gui.IsWindowVisible(hwnd):
+                return True
+            if not win32gui.GetWindowText(hwnd):
+                return True
+            try:
+                _, pid = win32process.GetWindowThreadProcessId(hwnd)
+                h_proc = win32api.OpenProcess(
+                    win32con.PROCESS_QUERY_INFORMATION | win32con.PROCESS_VM_READ,
+                    False, pid,
+                )
+                try:
+                    exe = win32process.GetModuleFileNameEx(h_proc, 0)
+                    if Path(exe).name.lower() in candidates:
+                        result.append(hwnd)
+                finally:
+                    win32api.CloseHandle(h_proc)
+            except Exception:
+                pass
             return True
-        except FileNotFoundError:
-            pass
 
-    # 2. Try name directly as command
-    try:
-        subprocess.Popen([app_name])
-        return True
-    except (FileNotFoundError, OSError):
-        pass
-
-    # 3. Start Menu search via Windows shell
-    try:
-        import pyautogui
-        pyautogui.hotkey("win")
-        time.sleep(0.5)
-        pyautogui.typewrite(app_name, interval=0.05)
-        time.sleep(0.8)
-        pyautogui.press("enter")
-        return True
+        win32gui.EnumWindows(_cb, None)
+        return result[0] if result else None
     except Exception:
+        log.debug("device: _find_running_window failed for %r", app_name, exc_info=True)
+        return None
+
+
+def _focus_window(hwnd: int) -> None:
+    """Restore (if minimized) and bring hwnd to the foreground."""
+    try:
+        import win32con
+        import win32gui
+        if win32gui.IsIconic(hwnd):
+            win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
+        win32gui.SetForegroundWindow(hwnd)
+    except Exception:
+        log.debug("device: _focus_window failed for hwnd=%d", hwnd, exc_info=True)
+
+
+def _local_launch_app(app_name: str) -> bool:
+    # Reuse an existing instance rather than spawning a duplicate.
+    hwnd = _find_running_window(app_name)
+    if hwnd:
+        log.debug("device: %r already running (hwnd=%d), focusing", app_name, hwnd)
+        _focus_window(hwnd)
+        return True
+
+    cmd = AppResolver().resolve(app_name)
+    if cmd is None:
+        log.warning("device: could not resolve app %r -- launch failed", app_name)
+        return False
+
+    # Tier 5 (Start Menu) already performed the launch via pyautogui
+    if cmd.tier == 5:
+        return True
+
+    try:
+        proc = subprocess.Popen(cmd.args)
+        log.debug("device: launched %r via tier %d (%s)", app_name, cmd.tier, cmd.resolved_path)
+        # Register with the kill switch so it's cleaned up on abort.
+        try:
+            from phone_agent.windows import safety
+            safety.register_process(proc)
+        except Exception:
+            pass
+        return True
+    except (FileNotFoundError, OSError) as exc:
+        log.error("device: Popen failed for %r (%s): %s", app_name, cmd.resolved_path, exc)
         return False
