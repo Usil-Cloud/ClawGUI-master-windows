@@ -1,6 +1,6 @@
 ---
 mirrors: scripts/dev/benchmark_gui_owl.py
-last_updated: 2026-04-27
+last_updated: 2026-04-30
 status: active
 ---
 
@@ -9,12 +9,14 @@ status: active
 ## Purpose
 End-to-end live test for 1-F per Q5-A. Captures the VS Code battery, runs
 each screenshot through the live `GUIOwlAdapter` (pointed at a running
-`run_gui_owl_2b.py` server), measures latency, and writes a markdown report
-to `docs/features/gui_owl_perception/benchmarks/<date>_vscode_<runtime>.md`.
+`run_gui_owl.py` server), measures latency, and writes a markdown report
+to `docs/features/gui_owl_perception/benchmarks/<date>_vscode_<tier>_<runtime>.md`.
 
 ## Approach
 - Requires a wrapper server already running on `--endpoint` (default
   `http://127.0.0.1:8002`). Fails fast if `/health` doesn't answer.
+- `--tier 2b|7b` chooses which tier the adapter requests. The wrapper
+  hot-swaps to that tier on the first request if not already loaded.
 - Calls `capture_vscode_battery` to produce the 5 screenshots.
 - For each: `adapter.analyze(screenshot, prompt=...)`, time it, record
   result + latency.
@@ -27,6 +29,7 @@ to `docs/features/gui_owl_perception/benchmarks/<date>_vscode_<runtime>.md`.
   pass/fail.
 - Always writes the report — even on failure — so we have an artifact to
   diagnose from.
+- Run once per tier for a complete Phase 1-F live validation.
 
 ## Status
 Stable.
@@ -36,6 +39,6 @@ None.
 
 ## Linked Docs
 - Parent: [docs/features/gui_owl_perception/_index.md](../../features/gui_owl_perception/_index.md)
-- Wrapper server: [run_gui_owl_2b](run_gui_owl_2b.md)
+- Wrapper server: [run_gui_owl](run_gui_owl.md)
 - Capture script: [capture_vscode_battery](capture_vscode_battery.md)
 - Reports land in `docs/features/gui_owl_perception/benchmarks/`

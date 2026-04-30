@@ -2,7 +2,7 @@
 name: Phase 1-F GUI-Owl Perception Adapter hub
 description: Parent doc for Feature 1-F — wraps GUI-Owl (Mobile-Agent v3) and normalizes output to ScreenState.
 type: project
-last_updated: 2026-04-27
+last_updated: 2026-04-30
 status: active
 ---
 
@@ -53,22 +53,19 @@ the **only** GUI-Owl-aware module in the project.
 
 | Date | Machine | nvidia-smi | Detected tier | Notes |
 |---|---|---|---|---|
-| 2026-04-27 | Luis's laptop (Win11) | not available | `'7b'` (fallback default) | Non-NVIDIA setup. The `'7b'` fallback default is suspicious for this machine — the user likely needs `'2b'` here. See "Open design questions" below. |
+| 2026-04-27 | Luis's laptop (Win11) | not available | `'2b'` (fallback default) | Non-NVIDIA setup. The `'2b'` fallback default is correct here per the 2026-04-30 resolution. |
+| _pending_ | Luis's desktop (Win11, RTX 5070 Ti, 16 GB) | available | `'7b'` (24 GB threshold not crossed → bucket = 7b) | Phase 1-F live tests. Both 2B and 7B installed via `setup_perception_env.py`; hot-swap wrapper validated end-to-end. |
 
-## Open design questions
+## Resolved design questions
 
-- **Non-NVIDIA fallback default.** `_DEFAULT_TIER_ON_DETECT_FAIL = '7b'` assumes
-  the absence of `nvidia-smi` is transient. On laptops without a discrete
-  NVIDIA GPU (P3 persona — most consumer laptops), `'2b'` is the realistic
-  pick. Options: (a) keep `'7b'` and document that users must set
-  `model_tier='2b'` explicitly on non-NVIDIA hardware; (b) flip the fallback
-  to `'2b'`; (c) detect non-NVIDIA-but-has-GPU (Intel/AMD via wmi/dxdiag) and
-  pick `'2b'`. Decide before 1-G integration.
+- **Non-NVIDIA fallback default (resolved 2026-04-30).** `_DEFAULT_TIER_ON_DETECT_FAIL = '2b'`
+  is correct: when `nvidia-smi` is missing we assume "no discrete NVIDIA GPU"
+  (P3 persona) and `'2b'` is the realistic pick. Stale `design.md` updated
+  to match the code; no code change.
 
 ## Open work / next steps
 
-- Stand up a real GUI-Owl inference server (local or hosted) and run the live test path
-- Resolve the non-NVIDIA fallback default question above
+- Run the live benchmark on the desktop (RTX 5070 Ti) for both 2B and 7B tiers — see [test_machine_setup.md](test_machine_setup.md)
 - Phase 1-G will consume `ScreenState` from this adapter
 
 ## Related

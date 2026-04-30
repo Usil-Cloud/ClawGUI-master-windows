@@ -2,7 +2,7 @@
 name: ClawGUI Reusable Blocks Index
 description: One-line registry of shared modules that cross feature boundaries. Consult before writing any new utility.
 type: reference
-last_updated: 2026-04-27
+last_updated: 2026-04-30
 status: active
 ---
 
@@ -44,7 +44,7 @@ This is the *implementation* registry — `INTEGRATION_CONTRACT.md` is the
 | `ScreenState` / `UIElement` (1-F) | `phone_agent/perception/types.py` | Public perception dataclasses (frozen). Output shape of any VLM-based screen analyzer. | You need a model-agnostic representation of "what's on the screen right now." | 1-F `gui_owl_adapter.py`, future 1-G agent loop |
 | `endpoints` (1-F) | `phone_agent/config/endpoints.py` | External inference endpoint registry + env-var override resolver. Currently GUI-Owl /analyze. | You're adding a new external HTTP service that should be tier- or env-configurable. | 1-F adapter; pattern for future model integrations |
 | `timing` config | `phone_agent/config/timing.py` | Tunable timing constants (action delays, connection timeouts, device polls). | You need a sleep / timeout that's not test-specific — put it here, not as a literal. | 1-B, 1-D, others |
-| `perception venv` (out-of-tree) | `%USERPROFILE%/.clawgui/venv-perception/` (created by `scripts/dev/setup_gui_owl_env.py`) | Isolated Python venv holding the multi-GB inference stack (torch CUDA, transformers, bitsandbytes, GUI-Owl weights). | You're adding a new heavy ML dep that shouldn't be in the project's main env. Use the same out-of-tree pattern, don't bloat `requirements.txt`. | 1-F live wrapper (`scripts/dev/run_gui_owl_2b.py`); future heavy-inference work |
+| `perception venv` (out-of-tree) | `%USERPROFILE%/.clawgui/venv-perception/` (created by `scripts/dev/setup_perception_env.py`) | Isolated Python venv holding the multi-GB inference stack (torch CUDA, transformers, bitsandbytes, GUI-Owl 2B + 7B weights). Multi-tier installer; weights for each requested tier land at `%USERPROFILE%/.clawgui/models/<repo-leaf>/`. | You're adding a new heavy ML dep that shouldn't be in the project's main env. Use the same out-of-tree pattern, don't bloat `requirements.txt`. | 1-F live wrapper (`scripts/dev/run_gui_owl.py`, hot-swap); future heavy-inference work |
 | Heavy-import stub helper | `_stub_if_missing()` (copied across `tests/perception/conftest.py`, `tests/windows/conftest.py`, and the dev scripts) | Replace optional heavyweight modules (`openai`, `phone_agent.model.client`, etc.) with `MagicMock` shims so tests / scripts don't need the full inference stack. | You're writing a script or test that touches `phone_agent` but shouldn't pull the AI/model deps. | All perception + windows tests, all `scripts/dev/*` scripts |
 
 ## Recently fixed in shared blocks (downstream regression watch)

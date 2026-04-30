@@ -1,6 +1,6 @@
 ---
 mirrors: docs/features/gui_owl_perception/
-last_updated: 2026-04-27
+last_updated: 2026-04-30
 status: active
 ---
 
@@ -45,11 +45,18 @@ time, parses the largest free-VRAM value (in MiB), and picks:
 | 24–80 GB     | `72b` |
 | ≥ 80 GB      | `235b`|
 
-If `nvidia-smi` is missing or fails, the adapter falls back to `'7b'` (the
-roadmap default) and logs a WARNING.
+If `nvidia-smi` is missing or fails, the adapter falls back to `'2b'` (the
+laptop-class default — see the resolution note below) and logs a WARNING.
 
 The user can override at any time by passing an explicit `model_tier` to the
 constructor.
+
+> **Non-NVIDIA fallback (resolved 2026-04-30).** Earlier drafts of this doc
+> said the fallback was `'7b'`. The code (`gui_owl_adapter.py:34`) sets
+> `_DEFAULT_TIER_ON_DETECT_FAIL = "2b"`, which is the realistic pick for the
+> P3 / consumer-laptop persona where `nvidia-smi` is absent. P1/P2 users
+> with real NVIDIA hardware reach the detect path proper and get sized to
+> their actual free VRAM. The doc was the stale one; the code stays.
 
 ## Endpoint configuration
 

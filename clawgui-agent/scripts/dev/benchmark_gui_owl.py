@@ -250,6 +250,10 @@ def _write_report(report_path: pathlib.Path, results: list[dict],
 def main() -> None:
     parser = argparse.ArgumentParser(description="GUI-Owl live benchmark (1-F)")
     parser.add_argument("--endpoint", type=str, default="http://127.0.0.1:8002")
+    parser.add_argument("--tier", type=str, default="2b",
+                        choices=("2b", "7b", "72b", "235b"),
+                        help="Tier to send in each /analyze request. The hot-swap "
+                             "wrapper loads/evicts based on this value.")
     parser.add_argument("--fixtures-dir", type=str, default=None,
                         help="Reuse an existing fixtures dir; skip the capture step.")
     parser.add_argument("--project-dir", type=str, default=str(PROJECT_ROOT),
@@ -266,7 +270,8 @@ def main() -> None:
         log.error("Aborting: wrapper server not healthy at %s", args.endpoint)
         log.error("Start it first: "
                   "%USERPROFILE%/.clawgui/venv-perception/Scripts/python "
-                  "scripts/dev/run_gui_owl_2b.py --runtime=transformers --port=8002")
+                  "scripts/dev/run_gui_owl.py --runtime=transformers "
+                  f"--default-tier={args.tier} --port=8002")
         sys.exit(1)
 
     if args.fixtures_dir:
@@ -274,7 +279,7 @@ def main() -> None:
     else:
         fixtures_dir = _capture_battery(pathlib.Path(args.project_dir))
 
-    adapter = GUIOwlAdapter(model_tier="2b", endpoint_url=args.endpoint)
+    adapter = GUIOwlAdapter(model_tier=args.tier, endpoint_url=args.endpoint)
 
     results: list[dict] = []
     for state in STATE_ORDER:
@@ -295,9 +300,9 @@ def main() -> None:
 
     date_str = datetime.datetime.now().strftime("%Y-%m-%d")
     report_path = (PROJECT_ROOT / "docs" / "features" / "gui_owl_perception"
-                   / "benchmarks" / f"{date_str}_vscode_{args.runtime_label}.md")
+                   / "benchmarks" / f"{date_str}_vscode_{args.tier}_{args.runtime_label}.md")
     _write_report(report_path, results, evaluation,
-                  args.endpoint, args.runtime_label, fixtures_dir)
+                  args.endpoint, f"{args.tier}/{args.runtime_label}", fixtures_dir)
 
     print("=" * 60)
     print(f"benchmark complete. report: {report_path}")
