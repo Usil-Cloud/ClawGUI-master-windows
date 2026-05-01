@@ -1,0 +1,23 @@
+{
+  "id": "clawgui-agent",
+  "name": "ClawGUI Agent",
+  "phase": "prototyping",
+  "tags": ["python", "gradio", "ai-agent", "gui-automation", "uvicorn", "ue5"],
+  "staleAfterDays": 5,
+  "watch": ["phone_agent/**/*.py", "*.py", "*.md", "docs/**/*.md"],
+  "launch": [
+    {
+      "name": "Web UI (Gradio)",
+      "command": "python webui.py",
+      "default": true
+    },
+    {
+      "name": "Windows Agent Server",
+      "command": "python windows_agent_server.py"
+    }
+  ],
+  "links": {
+    "webui": "http://127.0.0.1:7860",
+    "api-docs": "http://127.0.0.1:7860/docs"
+  }
+}
