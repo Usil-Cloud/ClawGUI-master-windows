@@ -188,7 +188,7 @@ def step_smoke_test(tier: str) -> None:
         path = {str(local_dir)!r}
         proc = AutoProcessor.from_pretrained(path, trust_remote_code=True)
         model = AutoModelForImageTextToText.from_pretrained(
-            path, torch_dtype=torch.float16, device_map='auto', trust_remote_code=True,
+            path, dtype=torch.float16, device_map='auto', trust_remote_code=True,
         )
         img = Image.new('RGB', (256, 256), (200, 200, 220))
         msgs = [{{'role': 'user', 'content': [
