@@ -83,10 +83,10 @@ python scripts\dev\setup_perception_env.py --skip-weights
 
 ## 3. Start the wrapper server
 
-In one terminal:
+In one terminal (no venv activation required — the script self-relaunches
+under the perception venv if torch isn't found on the current `python`):
 
 ```powershell
-%USERPROFILE%\.clawgui\venv-perception\Scripts\activate
 python scripts\dev\run_gui_owl.py --default-tier=2b --port=8002
 ```
 
@@ -100,6 +100,11 @@ To pin to a single tier (no hot-swap):
 ```powershell
 python scripts\dev\run_gui_owl.py --default-tier=7b --pin --port=8002
 ```
+
+> **Note (PowerShell execution policy):** If you see
+> `cannot be loaded because running scripts is disabled on this system`, run
+> this once in the same terminal before retrying:
+> `Set-ExecutionPolicy -Scope Process -ExecutionPolicy RemoteSigned`
 
 ## 4. Configure adapter endpoints
 

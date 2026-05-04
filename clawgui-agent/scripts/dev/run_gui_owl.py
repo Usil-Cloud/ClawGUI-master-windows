@@ -58,6 +58,36 @@ from setup_perception_env import TIER_REPOS, _model_dir_for  # noqa: E402
 
 log = logging.getLogger(__name__)
 
+
+def _ensure_perception_venv() -> None:
+    """Re-exec under the perception venv if torch isn't importable.
+
+    Lets the user run `python scripts/dev/run_gui_owl.py` from any Python
+    without manually activating the venv first.
+    """
+    try:
+        import torch  # noqa: F401
+        return
+    except ImportError:
+        pass
+
+    venv_python = pathlib.Path.home() / ".clawgui" / "venv-perception" / (
+        "Scripts/python.exe" if sys.platform == "win32" else "bin/python"
+    )
+    if not venv_python.exists():
+        print(
+            f"[run_gui_owl] ERROR: torch not found and perception venv missing at {venv_python}\n"
+            f"[run_gui_owl] Run: python scripts/dev/setup_perception_env.py",
+            file=sys.stderr, flush=True,
+        )
+        sys.exit(1)
+
+    print(f"[run_gui_owl] re-launching under perception venv: {venv_python}", flush=True)
+    import subprocess
+    result = subprocess.run([str(venv_python)] + sys.argv)
+    sys.exit(result.returncode)
+
+
 GROUNDING_PROMPT = """\
 You are a UI grounding assistant. Look at this screenshot and identify the
 visible interactive elements. Respond ONLY with a JSON object in this exact
@@ -339,6 +369,7 @@ def _parse_multipart(body: bytes, content_type: str) -> tuple[bytes | None, str,
 
 
 def main() -> None:
+    _ensure_perception_venv()
     parser = argparse.ArgumentParser(description="GUI-Owl HTTP wrapper (multi-tier)")
     parser.add_argument("--runtime", choices=("transformers", "vllm"),
                         default="transformers")
