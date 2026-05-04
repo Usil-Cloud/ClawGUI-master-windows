@@ -84,6 +84,17 @@ class AppResolver:
 
         exe = APP_PACKAGES_WINDOWS.get(app_name) or APP_PACKAGES_WINDOWS.get(app_name.lower())
         if exe:
+            if not exe.lower().endswith(".exe"):
+                # e.g. "code", "cursor" — these are .cmd wrappers on Windows.
+                # Popen can't execute .cmd without shell=True, so resolve to
+                # the full path and wrap with "cmd /c" if needed.
+                import shutil
+                resolved = shutil.which(exe)
+                if resolved is None:
+                    return None  # fall through to tier 2 (registry)
+                if resolved.lower().endswith((".cmd", ".bat")):
+                    return LaunchCommand(args=["cmd", "/c", resolved], tier=1, resolved_path=resolved)
+                return LaunchCommand(args=[resolved], tier=1, resolved_path=resolved)
             return LaunchCommand(args=[exe], tier=1, resolved_path=exe)
         return None
 
