@@ -83,10 +83,13 @@ python scripts\dev\setup_perception_env.py --skip-weights
 
 ## 3. Start the wrapper server
 
-In one terminal (no venv activation required — the script self-relaunches
-under the perception venv if torch isn't found on the current `python`):
+Open a terminal and `cd` into the project root (wherever you cloned the repo,
+e.g. `C:\clawgui-agent`). No venv activation required — the script
+self-relaunches under the perception venv if torch isn't found on the current
+`python`:
 
 ```powershell
+cd C:\clawgui-agent   # adjust to your actual clone path
 python scripts\dev\run_gui_owl.py --default-tier=2b --port=8002
 ```
 
@@ -108,8 +111,9 @@ python scripts\dev\run_gui_owl.py --default-tier=7b --pin --port=8002
 
 ## 4. Configure adapter endpoints
 
-In the second terminal (project venv, **not** the perception venv), point
-both per-tier env vars at the single hot-swap server:
+Open a new terminal, `cd` to the same project root, and point both per-tier
+env vars at the single hot-swap server (do **not** activate the perception
+venv here — use the project's regular Python):
 
 ```powershell
 $env:CLAWGUI_GUIOWL_2B_URL = "http://127.0.0.1:8002"
@@ -122,7 +126,7 @@ set the two env vars to those distinct URLs.
 
 ## 5. Run the benchmark
 
-Same second terminal. Run once per tier:
+In the same terminal. Run once per tier:
 
 ```powershell
 python scripts\dev\benchmark_gui_owl.py --tier 2b --endpoint http://127.0.0.1:8002
