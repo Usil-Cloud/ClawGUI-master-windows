@@ -193,7 +193,7 @@ class TransformersRuntime:
         )
         self.model = AutoModelForImageTextToText.from_pretrained(
             str(model_dir),
-            torch_dtype=self._torch.float16,
+            dtype=self._torch.float16,
             device_map="auto",
             load_in_4bit=True,
             trust_remote_code=True,
