@@ -78,6 +78,12 @@ def _model_dir_for(tier: str) -> pathlib.Path:
     return MODELS_DIR / repo_id.split("/", 1)[1]
 
 
+def _has_model_weights(directory: pathlib.Path) -> bool:
+    """True only when actual weight files (not just config/tokenizer files) are present."""
+    weight_exts = {".safetensors", ".bin", ".pt", ".ckpt"}
+    return any(f.suffix in weight_exts for f in directory.rglob("*") if f.is_file())
+
+
 def _run(cmd: list[str], **kwargs) -> int:
     _log("$ " + " ".join(str(c) for c in cmd))
     return subprocess.call(cmd, **kwargs)
@@ -140,7 +146,7 @@ def step_make_venv() -> None:
 
 def step_install_deps() -> None:
     py = str(_venv_python())
-    _run([py, "-m", "pip", "install", "--upgrade", "pip", "wheel", "setuptools"])
+    _run([py, "-m", "pip", "install", "--upgrade", "pip", "wheel", "setuptools<82"])
     rc = _run([py, "-m", "pip", "install", "-r", str(REQUIREMENTS_FILE)])
     if rc != 0:
         _err("dep install failed — see pip output above")
@@ -151,7 +157,7 @@ def step_install_deps() -> None:
 def step_download_weights(tier: str) -> None:
     repo_id = TIER_REPOS[tier]
     local_dir = _model_dir_for(tier)
-    if local_dir.exists() and any(local_dir.iterdir()):
+    if local_dir.exists() and _has_model_weights(local_dir):
         _log(f"[{tier}] weights already present at {local_dir} (skipping)")
         return
     MODELS_DIR.mkdir(parents=True, exist_ok=True)
@@ -161,7 +167,6 @@ def step_download_weights(tier: str) -> None:
         path = snapshot_download(
             repo_id={repo_id!r},
             local_dir={str(local_dir)!r},
-            local_dir_use_symlinks=False,
         )
         print('downloaded to:', path)
     """)
@@ -188,7 +193,7 @@ def step_smoke_test(tier: str) -> None:
         path = {str(local_dir)!r}
         proc = AutoProcessor.from_pretrained(path, trust_remote_code=True)
         model = AutoModelForImageTextToText.from_pretrained(
-            path, torch_dtype=torch.float16, device_map='auto', trust_remote_code=True,
+            path, dtype=torch.float16, device_map='auto', trust_remote_code=True,
         )
         img = Image.new('RGB', (256, 256), (200, 200, 220))
         msgs = [{{'role': 'user', 'content': [
