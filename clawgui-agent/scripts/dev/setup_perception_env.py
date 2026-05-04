@@ -111,7 +111,7 @@ def step_check_nvidia() -> None:
         _err("nvidia-smi not available — this setup targets NVIDIA + CUDA. "
              "If the test machine has no GPU, run with --runtime=cpu in the "
              "wrapper instead, or change requirements_perception.txt to drop "
-             "the +cu121 torch wheels.")
+             "the +cu128 torch wheels.")
         sys.exit(1)
 
 

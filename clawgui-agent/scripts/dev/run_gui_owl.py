@@ -58,7 +58,9 @@ from setup_perception_env import TIER_REPOS, _model_dir_for  # noqa: E402
 
 log = logging.getLogger(__name__)
 
-GROUNDING_PROMPT = """\
+# Concatenated, not str.format'd — the JSON schema below contains literal
+# braces that would otherwise be parsed as format placeholders.
+_GROUNDING_PROMPT_PREFIX = """\
 You are a UI grounding assistant. Look at this screenshot and identify the
 visible interactive elements. Respond ONLY with a JSON object in this exact
 schema, no prose before or after:
@@ -74,8 +76,11 @@ schema, no prose before or after:
   "reflection": "<one short sentence: what's on screen>"
 }
 
-User instruction: {user_prompt}
-"""
+User instruction: """
+
+
+def _build_prompt(user_prompt: str) -> str:
+    return _GROUNDING_PROMPT_PREFIX + (user_prompt or "describe the screen")
 
 _JSON_BLOCK_RE = re.compile(r"\{[\s\S]*\}", re.MULTILINE)
 
@@ -139,7 +144,11 @@ class TransformersRuntime:
                 f"server pinned to tier {self.active_tier!r}; refusing to load {tier!r}. "
                 f"Restart with --default-tier={tier} to switch."
             )
-        from transformers import AutoModelForImageTextToText, AutoProcessor  # noqa: PLC0415
+        from transformers import (  # noqa: PLC0415
+            AutoModelForImageTextToText,
+            AutoProcessor,
+            BitsAndBytesConfig,
+        )
 
         if self.model is not None:
             log.info("evicting tier %s from VRAM ...", self.active_tier)
@@ -163,9 +172,9 @@ class TransformersRuntime:
         )
         self.model = AutoModelForImageTextToText.from_pretrained(
             str(model_dir),
-            torch_dtype=self._torch.float16,
+            dtype=self._torch.float16,
             device_map="auto",
-            load_in_4bit=True,
+            quantization_config=BitsAndBytesConfig(load_in_4bit=True),
             trust_remote_code=True,
         )
         self.active_tier = tier
@@ -182,9 +191,7 @@ class TransformersRuntime:
             img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
             msgs = [{"role": "user", "content": [
                 {"type": "image", "image": img},
-                {"type": "text", "text": GROUNDING_PROMPT.format(
-                    user_prompt=user_prompt or "describe the screen"
-                )},
+                {"type": "text", "text": _build_prompt(user_prompt)},
             ]}]
             text = self.processor.apply_chat_template(
                 msgs, add_generation_prompt=True, tokenize=False,
@@ -223,9 +230,7 @@ class VLLMRuntime:
             model=self.model_name,
             messages=[{"role": "user", "content": [
                 {"type": "image_url", "image_url": {"url": data_uri}},
-                {"type": "text", "text": GROUNDING_PROMPT.format(
-                    user_prompt=user_prompt or "describe the screen"
-                )},
+                {"type": "text", "text": _build_prompt(user_prompt)},
             ]}],
             max_tokens=512, temperature=0.0,
         )
