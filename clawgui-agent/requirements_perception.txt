@@ -18,7 +18,7 @@ torchvision>=0.22.0
 # transformers 4.52+ required for qwen3_vl architecture (GUI-Owl-1.5-2B-Instruct)
 transformers>=4.52.0
 accelerate>=1.0.1
-bitsandbytes==0.44.1     # int4 quantization on CUDA Windows
+bitsandbytes>=0.45.0     # int4 quantization on CUDA Windows; 0.45+ ships cuda128 binary for Blackwell
 qwen-vl-utils==0.0.10
 safetensors==0.4.5
 sentencepiece==0.2.0
