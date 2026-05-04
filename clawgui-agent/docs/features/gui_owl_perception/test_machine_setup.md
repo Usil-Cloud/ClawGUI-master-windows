@@ -1,6 +1,6 @@
 ---
 mirrors: docs/features/gui_owl_perception/
-last_updated: 2026-04-30
+last_updated: 2026-05-03
 status: active
 ---
 
@@ -10,9 +10,9 @@ Step-by-step clean-install procedure for running the live GUI-Owl benchmark
 on a Windows test machine with an NVIDIA GPU. Re-runnable from scratch —
 every step is idempotent or has an explicit reset path.
 
-**Reference target:** RTX 5070 Ti, 16 GB VRAM. The 2B and 7B tiers fit
-individually but not concurrently; the multi-tier wrapper (`run_gui_owl.py`)
-hot-swaps between them on demand.
+**Reference target:** RTX 5060 Ti, 16 GB VRAM (Blackwell sm_120). The 2B
+and 7B tiers fit individually but not concurrently; the multi-tier wrapper
+(`run_gui_owl.py`) hot-swaps between them on demand.
 
 ## 0. Prerequisites (verify, don't install)
 
@@ -54,7 +54,10 @@ What it does:
 1. Creates an isolated venv at `%USERPROFILE%\.clawgui\venv-perception\`
    (out-of-tree — doesn't pollute the project's main env or git status).
 2. Installs pinned deps from `requirements_perception.txt` — including
-   PyTorch with CUDA 12.1 wheels, transformers, bitsandbytes, qwen-vl-utils.
+   PyTorch with CUDA 12.8 wheels (required for Blackwell sm_120; older
+   cu121 wheels fail with "no kernel image is available" on RTX 50xx),
+   transformers >=4.52 (required for the 2B model's `qwen3_vl`
+   architecture), bitsandbytes, qwen-vl-utils.
 3. For each requested tier, downloads the HF repo into
    `%USERPROFILE%\.clawgui\models\<repo-leaf>\`:
    - `2b` → `mPLUG/GUI-Owl-1.5-2B-Instruct` (~5 GB)
@@ -83,11 +86,20 @@ python scripts\dev\setup_perception_env.py --skip-weights
 
 ## 3. Start the wrapper server
 
-In one terminal:
+In one terminal. PowerShell's default execution policy blocks `Activate.ps1`,
+so either bypass for the session first:
 
 ```powershell
-%USERPROFILE%\.clawgui\venv-perception\Scripts\activate
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+& "$env:USERPROFILE\.clawgui\venv-perception\Scripts\Activate.ps1"
 python scripts\dev\run_gui_owl.py --default-tier=2b --port=8002
+```
+
+…or skip activation entirely and call the venv's python directly (most
+reliable; works regardless of execution policy):
+
+```powershell
+& "$env:USERPROFILE\.clawgui\venv-perception\Scripts\python.exe" scripts\dev\run_gui_owl.py --default-tier=2b --port=8002
 ```
 
 Wait for `gui-owl wrapper listening on http://127.0.0.1:8002/analyze ...`.
@@ -162,6 +174,10 @@ python scripts\dev\setup_perception_env.py --reset
 |---|---|---|
 | `nvidia-smi` not found in setup | Driver not installed | Install NVIDIA driver; reboot |
 | `Could not load library cudnn_*` | PyTorch CUDA mismatch with driver | Driver too old — update; or pin a different torch CUDA version in `requirements_perception.txt` |
+| `CUDA error: no kernel image is available for execution` / `sm_120 not compatible` | RTX 50xx (Blackwell) on a torch wheel that pre-dates sm_120 | Confirm `requirements_perception.txt` has `torch>=2.7.0` and `--extra-index-url ...whl/cu128`; re-run setup with `--reset` |
+| `KeyError: 'qwen3_vl'` / `model type qwen3_vl ... not recognized` | transformers <4.52 (2B model uses qwen3_vl architecture) | Confirm `requirements_perception.txt` has `transformers>=4.52.0`; re-run setup with `--reset` |
+| `Activate.ps1` runs but prompt doesn't change to `(venv-perception)` | PowerShell execution policy silently blocked the script | Run `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass` in the session first, or skip activation and call `& "$env:USERPROFILE\.clawgui\venv-perception\Scripts\python.exe" ...` directly |
+| `ModuleNotFoundError: No module named 'torch'` when launching wrapper | Activation didn't take; `python` resolved to system interpreter, not venv | Same as above — verify your prompt shows `(venv-perception)` before running, or call the venv's python directly |
 | `OOM` at 7B model load | <6 GB free VRAM after other processes | Close other GPU apps; try `--default-tier=2b` only; or set `--pin` to keep one tier resident and avoid swap-back overhead |
 | Wrapper returns fallback `connect` for every request | Wrapper crashed silently | Check the wrapper terminal for traceback; common cause is bitsandbytes/CUDA mismatch |
 | Wrapper returns fallback `http_status` 500 with "RuntimeError: server pinned" | You sent `tier=7b` to a `--pin --default-tier=2b` server | Restart wrapper without `--pin`, or restart with `--default-tier=7b` |

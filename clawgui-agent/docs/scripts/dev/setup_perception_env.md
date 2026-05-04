@@ -1,6 +1,6 @@
 ---
 mirrors: scripts/dev/setup_perception_env.py
-last_updated: 2026-04-30
+last_updated: 2026-05-03
 status: active
 ---
 
@@ -20,7 +20,9 @@ deprecation shim that forwards to this script with `--tiers=2b`).
 - Creates venv at `%USERPROFILE%\.clawgui\venv-perception\` (out-of-tree —
   won't pollute the project's main env or git status).
 - Installs from `requirements_perception.txt` — pinned versions only.
-- PyTorch CUDA wheels via `--extra-index-url https://download.pytorch.org/whl/cu121`.
+- PyTorch CUDA wheels via `--extra-index-url https://download.pytorch.org/whl/cu128`
+  (CUDA 12.8 — required for Blackwell sm_120 / RTX 50xx; older cu121 wheels
+  fail on the test machine).
 - `TIER_REPOS` maps `'2b' -> mPLUG/GUI-Owl-1.5-2B-Instruct` and
   `'7b' -> mPLUG/GUI-Owl-7B`. Each requested tier is downloaded into
   `%USERPROFILE%\.clawgui\models\<repo-leaf>\` via
@@ -34,8 +36,8 @@ deprecation shim that forwards to this script with `--tiers=2b`).
   on the wrapper.
 
 ## Why both tiers by default
-The desktop test machine (RTX 5070 Ti, 16 GB VRAM) can host either tier
-individually but not both concurrently. Downloading both at install time
+The desktop test machine (RTX 5060 Ti, 16 GB VRAM, Blackwell sm_120) can
+host either tier individually but not both concurrently. Downloading both at install time
 means the wrapper can hot-swap between them at request time without ever
 hitting the network again. The installer is the only place that knows
 about HuggingFace; runtime stays offline.
