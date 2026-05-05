@@ -88,21 +88,34 @@ def _ensure_perception_venv() -> None:
     sys.exit(result.returncode)
 
 
+# IMPORTANT — brace-escape convention.
+# This template is rendered with str.format(user_prompt=...). The schema
+# example below contains literal JSON braces; per the project convention
+# already in use across phone_agent/config/prompts_*.py (see
+# GUIOWL_SYSTEM_PROMPT_EN around prompts_guiowl.py:136 for the canonical
+# example), every literal '{' and '}' MUST be doubled to '{{' and '}}' so
+# .format() emits a single brace and does not try to look up the JSON key
+# names as format-spec keys. The ONLY un-escaped placeholder permitted in
+# this string is '{user_prompt}'.
+#
+# A regression test (tests/perception/test_run_gui_owl_prompt.py) imports
+# this constant and runs .format(user_prompt="x") to fail loudly the moment
+# someone forgets to double-brace.
 GROUNDING_PROMPT = """\
 You are a UI grounding assistant. Look at this screenshot and identify the
 visible interactive elements. Respond ONLY with a JSON object in this exact
 schema, no prose before or after:
 
-{
+{{
   "elements": [
-    {"label": "<short element description>",
+    {{"label": "<short element description>",
      "bbox": [x1, y1, x2, y2],
      "confidence": <0.0-1.0>,
-     "type": "<button|input|text|icon|menu|other>"}
+     "type": "<button|input|text|icon|menu|other>"}}
   ],
   "planned_action": "<one short sentence: what the user should do next>",
   "reflection": "<one short sentence: what's on screen>"
-}
+}}
 
 User instruction: {user_prompt}
 """
@@ -213,7 +226,7 @@ class TransformersRuntime:
             msgs = [{"role": "user", "content": [
                 {"type": "image", "image": img},
                 {"type": "text", "text": GROUNDING_PROMPT.format(
-                    user_prompt=user_prompt or "describe the screen"
+                    user_prompt=user_prompt.strip() or "describe the screen"
                 )},
             ]}]
             text = self.processor.apply_chat_template(
@@ -254,7 +267,7 @@ class VLLMRuntime:
             messages=[{"role": "user", "content": [
                 {"type": "image_url", "image_url": {"url": data_uri}},
                 {"type": "text", "text": GROUNDING_PROMPT.format(
-                    user_prompt=user_prompt or "describe the screen"
+                    user_prompt=user_prompt.strip() or "describe the screen"
                 )},
             ]}],
             max_tokens=512, temperature=0.0,
