@@ -112,21 +112,62 @@ def _capture(name: str, out_dir: pathlib.Path) -> None:
     log.info("  -> %s (%dx%d)", png_path.name, shot.width, shot.height)
 
 
-def _launch_vscode() -> subprocess.Popen | None:
-    cmd = AppResolver().resolve("Visual Studio Code") or AppResolver().resolve("Code")
+def _resolve_vscode():
+    return AppResolver().resolve("Visual Studio Code") or AppResolver().resolve("Code")
+
+
+def _launch_vscode():
+    cmd = _resolve_vscode()
     if cmd is None:
         log.error("Could not resolve VS Code via AppResolver. Ensure 'code' "
                   "is on PATH or VS Code is registered in Start Menu.")
-        return None
+        return None, None
     log.info("launching VS Code via tier %d: %s", cmd.tier, cmd.resolved_path)
     proc = subprocess.Popen(cmd.args)
-    # Register with safety so the kill switch cleans us up.
     try:
         from phone_agent.windows import safety
         safety.register_process(proc)
     except Exception:
         pass
-    return proc
+    return proc, cmd
+
+
+def _open_folder_via_cli(cmd, project_dir: str) -> bool:
+    """Open `project_dir` in the existing VS Code window via its CLI.
+
+    Bypasses the Win32 folder dialog entirely — works for any path, no
+    keystroke timing. Tiers 1-2 are direct exe/cmd invocations that accept
+    VS Code's CLI args; tier 3 (UWP) goes through `explorer shell:...`,
+    which doesn't forward args, so we skip CLI for that.
+    """
+    if cmd is None or cmd.tier > 2:
+        return False
+    try:
+        subprocess.Popen(list(cmd.args) + ["--reuse-window", project_dir])
+        return True
+    except OSError as exc:
+        log.warning("CLI folder-open failed (%s); falling back to dialog", exc)
+        return False
+
+
+def _open_folder_via_dialog(project_dir: str, state_wait: float) -> None:
+    """Fallback: drive the Win32 folder dialog by keystroke.
+
+    Used only when the CLI path isn't available (UWP install, exotic
+    resolver tier). Defensive against the autocomplete-eats-Enter bug:
+    presses Escape first to clear any modal residue, then Enter twice
+    (first dismisses any autocomplete dropdown, second commits).
+    """
+    from phone_agent.windows.input import type_text
+    press_key("escape")
+    time.sleep(0.3)
+    hotkey("ctrl", "k", "ctrl", "o")
+    time.sleep(state_wait)
+    type_text(project_dir)
+    time.sleep(0.5)
+    press_key("enter")
+    time.sleep(0.5)
+    press_key("enter")
 
 
 def main() -> None:
@@ -161,12 +202,15 @@ def main() -> None:
     with safety.safety_session():
 
         proc = None
+        cmd = None
         if not args.no_launch:
-            proc = _launch_vscode()
+            proc, cmd = _launch_vscode()
             if proc is None:
                 sys.exit(1)
             log.info("waiting %.1fs for VS Code to be ready...", args.launch_wait)
             time.sleep(args.launch_wait)
+        else:
+            cmd = _resolve_vscode()  # for state 3 CLI re-invocation
 
         # State 1: empty_window — what's on screen right after launch
         _capture("empty_window", out_dir)
@@ -184,20 +228,28 @@ def main() -> None:
         time.sleep(args.state_wait)
         _capture("welcome_page", out_dir)
 
-        # State 3: file_tree — open a folder, force the explorer
-        hotkey("ctrl", "k", "ctrl", "o")  # Ctrl+K Ctrl+O = "Open Folder"
-        time.sleep(args.state_wait)
-        # The folder picker is a Win32 dialog; type the path and Enter.
-        type_text(args.project_dir)
-        time.sleep(0.5)
-        press_key("enter")
+        # State 3: file_tree — open the project folder.
+        # Prefer VS Code's CLI over driving the Win32 folder dialog: the
+        # dialog's path-textbox autocomplete eats the first Enter (treating
+        # it as "navigate into") and leaves the dialog open, which then
+        # consumes state 4's Quick-Open keystrokes.
+        opened_via_cli = _open_folder_via_cli(cmd, args.project_dir)
+        if not opened_via_cli:
+            log.info("CLI folder-open unavailable (tier=%s); using dialog fallback",
+                     getattr(cmd, "tier", None))
+            _open_folder_via_dialog(args.project_dir, args.state_wait)
         time.sleep(max(args.state_wait, 3.0))  # folder load can be slow
         # Force-show the explorer just in case.
         hotkey("ctrl", "shift", "e")
         time.sleep(args.state_wait)
         _capture("file_tree", out_dir)
 
-        # State 4: editor_terminal — open a file + the integrated terminal
+        # State 4: editor_terminal — open a file + the integrated terminal.
+        # Defensive Escape clears any lingering modal (palette, dialog
+        # remnants) before Quick Open, so README.md never lands in the
+        # wrong textbox.
+        press_key("escape")
+        time.sleep(0.3)
         hotkey("ctrl", "p")  # quick open
         time.sleep(args.state_wait)
         type_text("README.md")
